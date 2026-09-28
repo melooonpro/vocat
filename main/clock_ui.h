@@ -3,10 +3,7 @@
 
 #include <stdbool.h>
 #include <time.h>
+#include "lvgl.h"
 
-#include "esp_err.h"
-
-esp_err_t clock_ui_init(void);
-esp_err_t clock_ui_render(const struct tm *timeinfo, bool time_synced, bool wifi_connected);
-esp_err_t clock_ui_animate(const struct tm *old_time, const struct tm *new_time,
-                           bool time_synced, bool wifi_connected);
+lv_obj_t *clock_ui_create(lv_obj_t *parent);
+void clock_ui_update(const struct tm *timeinfo, bool time_synced, bool wifi_connected);

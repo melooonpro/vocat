@@ -4,12 +4,12 @@
 #include <string.h>
 #include <time.h>
 
-#include "clock_ui.h"
+#include "app_ui.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_netif_sntp.h"
-#include "esp_vocat_v1_1.h"
+#include "voice_usb.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -110,16 +110,14 @@ static bool system_time_is_valid(const struct tm *timeinfo)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "Starting ESP-VoCat v1.1 N32R16 flip clock");
-    ESP_ERROR_CHECK(vocat_bsp_memory_validate());
-    ESP_ERROR_CHECK(vocat_bsp_display_init());
-    ESP_ERROR_CHECK(clock_ui_init());
-    ESP_ERROR_CHECK(clock_ui_render(NULL, false, false));
-    ESP_ERROR_CHECK(vocat_bsp_display_set_backlight(true));
+    ESP_LOGI(TAG, "Starting VoCat v1.0 N32R16 clock and VoCat Mic");
+    ESP_ERROR_CHECK(app_ui_init());
+    app_ui_update_clock(NULL, false, false);
+    ESP_ERROR_CHECK(voice_usb_init());
 
     init_nvs();
     bool wifi_connected = wifi_start_and_wait();
-    ESP_ERROR_CHECK(clock_ui_render(NULL, false, wifi_connected));
+    app_ui_update_clock(NULL, false, wifi_connected);
 
     if (wifi_connected) {
         setenv("TZ", CONFIG_VOCAT_TIMEZONE, 1);
@@ -166,12 +164,10 @@ void app_main(void)
                             current.tm_min != previous.tm_min ||
                             current.tm_sec != previous.tm_sec;
 
-        if (current_valid && previous_valid && time_changed) {
-            ESP_ERROR_CHECK(clock_ui_animate(&previous, &current, true, wifi_connected));
-        } else if (time_changed || current_valid != previous_valid ||
-                   wifi_connected != previous_wifi) {
-            ESP_ERROR_CHECK(clock_ui_render(current_valid ? &current : NULL,
-                                             current_valid, wifi_connected));
+        if (time_changed || current_valid != previous_valid ||
+            wifi_connected != previous_wifi) {
+            app_ui_update_clock(current_valid ? &current : NULL,
+                                current_valid, wifi_connected);
         }
 
         if (current_valid) {

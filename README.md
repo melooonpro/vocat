@@ -1,181 +1,89 @@
-# VoCat Flip Clock
+# VoCat ESP-IDF Example
 
-适用于 **ESP-VoCat v1.1 / ESP32-S3-WROOM-2-N32R16V** 的独立桌面翻页时钟。
+面向 **VoCat v1.0 / ESP32-S3-WROOM-2-N32R16V** 的通用示例固件工程，不依赖 ESP-Claw。
 
-本项目直接使用 ESP-IDF 和轻量 BSP 驱动 360 × 360 ST77916 圆形屏幕，不依赖 ESP-Claw、LVGL 或其他 UI 框架。
+默认界面是 LVGL 翻页时钟。向左滑动进入语音输入界面，向右滑动返回时钟。
 
 ## 功能
 
-- 小时、分钟、秒钟三张机械翻页卡片
-- 带重力加速感的连续翻页动画
-- 多卡片同时翻动时保持统一帧率
-- 4 bit 抗锯齿数字字库
-- Wi-Fi STA 联网和 SNTP 自动校时
-- NTP 超时后自动尝试 `ntp.aliyun.com`
-- 可配置时区、NTP 服务器和 12/24 小时制
-- 针对 32 MB Octal Flash + 16 MB Octal PSRAM 配置
-- Windows 和 Linux 均可构建
+- 复用官方 `espressif/esp_vocat` 显示与触摸驱动，并提供 VoCat v1.0 引脚兼容层。
+- 三张翻页牌显示时、分、秒，支持同步翻页动画。
+- GPIO15 接收 ES7210 数据，同时采集 MIC1/MIC2，自动选择有效声道并输出 48 kHz / 16-bit 单声道。
+- 语音界面枚举为 `VoCat Mic` UAC 麦克风与 USB HID 键盘复合设备。
+- 按住圆形麦克风按钮时持续发送左 `Ctrl + Win`，松开、触摸丢失或退出页面时立即释放。
+- 按住按钮时显示覆盖整块圆屏、随实际采样音量变化的绿色光晕。
+- 麦克风图标、圆形按钮、按压动效和波形完全由 LVGL 代码绘制，不依赖 SVG。
+- 不包含蓝牙传输功能。
 
-## 硬件
+## 按页面切换 USB
 
-| 项目 | 配置 |
-| --- | --- |
-| 开发板 | ESP-VoCat v1.1 |
-| 模组 | ESP32-S3-WROOM-2-N32R16V |
-| Flash | 32 MB Octal Flash |
-| PSRAM | 16 MB Octal PSRAM |
-| 屏幕 | 360 × 360 ST77916 QSPI LCD |
-| ESP-IDF | 6.1 或更高版本 |
+- 时钟界面：UAC/HID 与主机断开，内部 USB PHY 交还给 USB Serial/JTAG，可查看运行日志。
+- 语音界面：内部 USB PHY 切换到 USB-OTG，Windows 会重新枚举 `VoCat Mic` 和键盘 HID。
+- 返回时钟界面：先释放 `Ctrl + Win`，再断开 UAC/HID 并恢复日志接口。
 
-### 关于 v1.1 硬件版本
+页面切换会触发一次 Windows USB 设备断开与重新连接，这是正常行为。
 
-Espressif 公开资料目前主要覆盖 ESP-VoCat v1.0 和 v1.2，没有单独发布 v1.1 原理图。本项目的 BSP 使用两版公开设计中一致的显示接口，并兼容两种 LCD 复位线路：
+## Windows 环境
 
-- v1.0：GPIO3，低电平复位
-- v1.2：GPIO47，高电平复位
-- LCD/SD 电源：GPIO9，低电平使能
-- LCD QSPI、背光和片选引脚位于 `components/esp_vocat_v1_1`
-
-在没有确认 v1.1 原理图前，请勿直接启用可能占用 GPIO3 的 I2S 音频输入。
-
-参考资料：
-
-- [ESP-VoCat 硬件文档](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s3/esp-vocat/index.html)
-- [Espressif ESP-VoCat BSP 1.1.0](https://components.espressif.com/components/espressif/esp_vocat/versions/1.1.0/readme)
-- [官方显示驱动实现](https://github.com/espressif/esp-bsp/blob/master/bsp/esp_vocat/src/bsp_display.c)
-
-## 获取项目
-
-```bash
-git clone https://github.com/melooonpro/vocat.git
-cd vocat
-```
-
-首次构建时，ESP-IDF Component Manager 会自动下载官方 `esp_lcd_st77916` 组件。
-
-## 配置 Wi-Fi 和时间
-
-```bash
-idf.py set-target esp32s3
-idf.py menuconfig
-```
-
-进入 `VoCat Desktop Clock`，配置：
-
-- `Wi-Fi SSID`
-- `Wi-Fi password`
-- `POSIX timezone`
-- `NTP server`
-- `Use 24-hour time`
-
-中国大陆默认时区为：
-
-```text
-CST-8
-```
-
-POSIX 时区符号与常见 UTC 写法相反，因此北京时间使用 `CST-8`，不是 `UTC+8`。
-
-> [!IMPORTANT]
-> Wi-Fi 名称和密码会以明文写入本地 `sdkconfig`。该文件已加入 `.gitignore`，请勿手动提交或分享。
-
-## 构建和烧录
-
-### Windows PowerShell
-
-从开始菜单打开 **ESP-IDF 6.1 PowerShell**，然后执行：
-
-```powershell
-cd C:\path\to\vocat
-idf.py build
-idf.py -p COM5 flash monitor
-```
-
-将 `COM5` 替换为设备管理器中实际显示的串口。使用 `Ctrl+]` 退出串口监视器。
-
-如果普通 PowerShell 中无法识别 `idf.py`，说明尚未加载 ESP-IDF 环境。可以打开 ESP-IDF PowerShell，或者运行 ESP-IDF 安装目录中的 PowerShell profile。
-
-仓库中的 `idf.cmd`/`idf.ps1` 是 Windows 环境辅助脚本。其 ESP-IDF 安装路径可能需要根据本机环境修改：
+项目自带 ESP-IDF 6.1 PowerShell 包装脚本：
 
 ```powershell
 .\idf.cmd menuconfig
 .\idf.cmd build
-.\idf.cmd -p COM5 flash monitor
+.\idf.cmd -p COM5 flash
 ```
 
-### Linux
-
-```bash
-. "$HOME/esp/esp-idf/export.sh"
-idf.py build
-idf.py -p /dev/ttyACM0 flash monitor
-```
-
-串口也可能显示为 `/dev/ttyUSB0`，请按实际设备修改。
-
-### 常用 PowerShell 快捷函数
-
-如果已经在 PowerShell profile 中配置了本项目的快捷函数，可以使用：
+也可以手动加载环境：
 
 ```powershell
-bd       # 构建
-fmu0     # 使用枚举到的第 0 个 USB 串口烧录并监视
-fmu1     # 使用枚举到的第 1 个 USB 串口烧录并监视
-fmu      # 依次轮询可用 USB 串口
+D:\esp-idf\v6.1\esp-idf\export.ps1
 ```
 
-这些是用户级 PowerShell 函数，并非 ESP-IDF 内置命令。
+在 `menuconfig` 的 **VoCat Desktop Clock** 中设置 Wi-Fi、密码、时区和 NTP 服务器。
 
-## 重新生成数字字库
-
-Windows 上可以使用以下脚本重新生成 `main/clock_digits.bin`：
+## 构建与烧录
 
 ```powershell
-.\generate_clock_digits.ps1
+.\idf.cmd set-target esp32s3
+.\idf.cmd build
+.\idf.cmd -p COM5 flash
 ```
 
-脚本使用 Windows 的 `System.Drawing` 和 Arial Bold 生成 4 bit 抗锯齿数字位图。修改字库尺寸后，需要同步检查 `main/clock_ui.c` 中的 `DIGIT_W` 与 `DIGIT_H`。
+首次烧录后，在 Windows“设置 → 系统 → 声音 → 输入”中选择 `VoCat Mic`。只有进入语音界面时该设备才会出现。
+
+## PowerShell 快捷命令（可选）
+
+将以下内容加入 PowerShell Profile（`notepad $PROFILE`）：
+
+```powershell
+function bd { & .\idf.cmd build }
+function fmu0 { & .\idf.cmd -p COM5 flash monitor }
+function fmu {
+    $port = Get-CimInstance Win32_SerialPort |
+        Where-Object { $_.Name -match 'USB|JTAG|UART' } |
+        Select-Object -First 1 -ExpandProperty DeviceID
+    if (-not $port) { throw '没有找到可用串口' }
+    & .\idf.cmd -p $port flash monitor
+}
+```
+
+Linux 常见设备名为 `/dev/ttyUSB0` 或 `/dev/ttyACM0`；Windows 使用 `COMx`。
 
 ## 项目结构
 
 ```text
-vocat/
-├── components/esp_vocat_v1_1/   # VoCat v1.1 N32R16 最小 BSP
-├── main/
-│   ├── hello_vocat.c             # Wi-Fi、SNTP 和应用主循环
-│   ├── clock_ui.c                # 翻页时钟渲染与动画
-│   ├── clock_ui.h
-│   ├── clock_digits.bin          # 4 bit 抗锯齿数字字库
-│   └── Kconfig.projbuild         # menuconfig 项目配置
-├── generate_clock_digits.ps1     # 数字字库生成脚本
-├── sdkconfig.defaults            # ESP32-S3 N32R16 默认配置
-├── idf.cmd / idf.ps1             # Windows 构建辅助脚本
-└── CMakeLists.txt
+assets/                     素材说明；运行时不需要 SVG
+main/
+  app_ui.c                  双 App 页面、滑动切换与 USB 生命周期
+  clock_ui.c                LVGL 翻页时钟
+  voice_ui.c                圆形麦克风按钮、动效与实时波形
+  voice_usb.c               双麦采集、UAC、HID 和 USB PHY 切换
+  vocat_v1_0.c              v1.0 LCD 复位、GPIO15 I2S 和 ES7210 初始化
+  usb_descriptors.c         VoCat Mic UAC + HID 复合设备描述符
+  usb/tusb_config.h         TinyUSB UAC/HID 配置
+  hello_vocat.c             Wi-Fi、SNTP 与应用入口
 ```
 
-## 常见问题
+## License
 
-### `idf.py` 无法识别
-
-需要先加载 ESP-IDF 环境。Windows 推荐直接使用开始菜单中的 ESP-IDF PowerShell。
-
-### 找不到 `xtensa-esp32s3-elf-gcc`
-
-重新运行 ESP-IDF Tools Installer，或在 ESP-IDF 目录中执行安装脚本，然后重新打开终端。
-
-### OpenOCD 无法打开 FTDI 设备
-
-普通烧录不需要 OpenOCD。请选择 UART 烧录，并使用 VoCat 的 USB Serial/JTAG 串口：
-
-```powershell
-idf.py -p COM5 flash monitor
-```
-
-### NTP 首次同步超时
-
-SNTP 会继续在后台重试。项目还会自动尝试 `ntp.aliyun.com`，成功同步后屏幕会显示 `NTP SYNC`。
-
-## 许可证
-
-本项目采用 [Apache License 2.0](LICENSE)。第三方组件分别遵循其自身许可证。
-
+Apache License 2.0，详见 [LICENSE](LICENSE)。
