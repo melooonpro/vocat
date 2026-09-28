@@ -1,0 +1,29 @@
+menu "VoCat Desktop Clock"
+
+    config VOCAT_WIFI_SSID
+        string "Wi-Fi SSID"
+        default ""
+        help
+            Wireless network name used by the desktop clock.
+
+    config VOCAT_WIFI_PASSWORD
+        string "Wi-Fi password"
+        default ""
+        help
+            Leave empty only for an open wireless network.
+
+    config VOCAT_TIMEZONE
+        string "POSIX timezone"
+        default "CST-8"
+        help
+            POSIX TZ string. China Standard Time is CST-8.
+
+    config VOCAT_NTP_SERVER
+        string "NTP server"
+        default "pool.ntp.org"
+
+    config VOCAT_CLOCK_24_HOUR
+        bool "Use 24-hour time"
+        default y
+
+endmenu
