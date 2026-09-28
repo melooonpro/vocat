@@ -1,16 +1,27 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "app_ui.h"
+#include "air_mouse.h"
 #include "bsp/esp_vocat.h"
 #include "clock_ui.h"
 #include "esp_check.h"
+#include "mouse_ui.h"
 #include "voice_ui.h"
 #include "voice_usb.h"
 #include "vocat_v1_0.h"
 
 static lv_obj_t *s_clock;
 static lv_obj_t *s_voice;
-static bool s_voice_visible;
+static lv_obj_t *s_mouse;
+
+typedef enum {
+    APP_PAGE_CLOCK = 0,
+    APP_PAGE_VOICE,
+    APP_PAGE_MOUSE,
+    APP_PAGE_COUNT,
+} app_page_t;
+
+static volatile app_page_t s_page = APP_PAGE_CLOCK;
 
 static void set_x(void *object, int32_t value) { lv_obj_set_x((lv_obj_t *)object, value); }
 
@@ -27,20 +38,33 @@ static void slide(lv_obj_t *object, int from, int to)
     lv_anim_start(&animation);
 }
 
+static void show_page(app_page_t page)
+{
+    if (page == s_page || page >= APP_PAGE_COUNT) return;
+
+    if (s_page == APP_PAGE_VOICE) voice_ui_force_release();
+    if (s_page == APP_PAGE_MOUSE) {
+        mouse_ui_force_release();
+        air_mouse_set_active(false);
+    }
+
+    voice_usb_set_page_active(page != APP_PAGE_CLOCK);
+    if (page == APP_PAGE_MOUSE) air_mouse_set_active(true);
+
+    lv_obj_t *pages[] = {s_clock, s_voice, s_mouse};
+    for (int i = 0; i < APP_PAGE_COUNT; ++i) {
+        slide(pages[i], lv_obj_get_x(pages[i]), (i - (int)page) * 360);
+    }
+    s_page = page;
+}
+
 static void gesture_event(lv_event_t *event)
 {
     lv_event_code_t code = lv_event_get_code(event);
-    if (code == LV_EVENT_GESTURE_LEFT && !s_voice_visible) {
-        s_voice_visible = true;
-        voice_usb_set_page_active(true);
-        slide(s_clock, 0, -360);
-        slide(s_voice, 360, 0);
-    } else if (code == LV_EVENT_GESTURE_RIGHT && s_voice_visible) {
-        voice_ui_force_release();
-        voice_usb_set_page_active(false);
-        s_voice_visible = false;
-        slide(s_clock, -360, 0);
-        slide(s_voice, 0, 360);
+    if (code == LV_EVENT_GESTURE_LEFT && s_page + 1 < APP_PAGE_COUNT) {
+        show_page((app_page_t)(s_page + 1));
+    } else if (code == LV_EVENT_GESTURE_RIGHT && s_page > APP_PAGE_CLOCK) {
+        show_page((app_page_t)(s_page - 1));
     }
 }
 
@@ -52,9 +76,10 @@ esp_err_t app_ui_init(void)
     lv_obj_t *screen = lv_screen_active();
     lv_obj_set_style_bg_color(screen, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
-    lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(screen, false);
     s_clock = clock_ui_create(screen);
     s_voice = voice_ui_create(screen);
+    s_mouse = mouse_ui_create(screen);
     lv_obj_add_event_cb(screen, gesture_event, LV_EVENT_GESTURE_LEFT, NULL);
     lv_obj_add_event_cb(screen, gesture_event, LV_EVENT_GESTURE_RIGHT, NULL);
     bsp_display_unlock();
@@ -66,4 +91,9 @@ void app_ui_update_clock(const struct tm *timeinfo, bool time_synced, bool wifi_
     if (!bsp_display_lock(100)) return;
     clock_ui_update(timeinfo, time_synced, wifi_connected);
     bsp_display_unlock();
+}
+
+bool app_ui_is_clock_page(void)
+{
+    return s_page == APP_PAGE_CLOCK;
 }

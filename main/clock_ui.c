@@ -200,10 +200,10 @@ lv_obj_t *clock_ui_create(lv_obj_t *parent)
     lv_obj_remove_flag(s_root, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *title = lv_label_create(s_root);
-    lv_label_set_text(title, "VOCAT");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(0x929298), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 38);
+    lv_label_set_text(title, "VoCat Clock");
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xeeeeef), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 42);
     init_card(&s_cards[0], s_root, 18);
     init_card(&s_cards[1], s_root, 128);
     init_card(&s_cards[2], s_root, 238);

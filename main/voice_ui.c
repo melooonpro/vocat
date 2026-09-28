@@ -4,12 +4,73 @@
 #include "voice_usb.h"
 
 static lv_obj_t *s_button;
+static lv_obj_t *s_enter_zone;
+static lv_obj_t *s_enter_arrow;
 #define RIPPLE_COUNT 3
+#define ENTER_DOUBLE_TAP_MS 550
+#define ENTER_TAP_MOVE_TOLERANCE 36
 static lv_obj_t *s_glow;
 static lv_obj_t *s_ripples[RIPPLE_COUNT];
 static bool s_pressed;
+static bool s_enter_press_valid;
+static bool s_enter_tap_waiting;
+static lv_point_t s_enter_press_point;
+static uint32_t s_last_enter_tap;
 static uint16_t s_glow_phase;
 static uint16_t s_level_smooth;
+
+static void restore_enter_color(lv_timer_t *timer)
+{
+    (void)timer;
+    lv_obj_set_style_border_color(s_enter_zone, lv_color_white(), 0);
+    lv_obj_set_style_line_color(s_enter_arrow, lv_color_white(), 0);
+}
+
+static void send_enter(void)
+{
+    voice_usb_send_enter();
+    lv_color_t active_color = lv_color_hex(0x28e878);
+    lv_obj_set_style_border_color(s_enter_zone, active_color, 0);
+    lv_obj_set_style_line_color(s_enter_arrow, active_color, 0);
+    lv_timer_t *timer = lv_timer_create(restore_enter_color, 160, NULL);
+    lv_timer_set_repeat_count(timer, 1);
+}
+
+static void enter_event(lv_event_t *event)
+{
+    lv_event_code_t code = lv_event_get_code(event);
+    if (code == LV_EVENT_PRESSED) {
+        lv_indev_get_point(lv_indev_active(), &s_enter_press_point);
+        s_enter_press_valid = true;
+    } else if (code == LV_EVENT_RELEASED && s_enter_press_valid) {
+        lv_point_t point;
+        lv_indev_get_point(lv_indev_active(), &point);
+        int dx = point.x - s_enter_press_point.x;
+        int dy = point.y - s_enter_press_point.y;
+        if (dx < 0) dx = -dx;
+        if (dy < 0) dy = -dy;
+        s_enter_press_valid = false;
+
+        /* Count taps ourselves instead of relying on LVGL's stricter
+         * DOUBLE_CLICKED event. The complete area below the rule is active. */
+        if (dx <= ENTER_TAP_MOVE_TOLERANCE && dy <= ENTER_TAP_MOVE_TOLERANCE) {
+            uint32_t now = lv_tick_get();
+            if (s_enter_tap_waiting &&
+                lv_tick_diff(now, s_last_enter_tap) <= ENTER_DOUBLE_TAP_MS) {
+                s_enter_tap_waiting = false;
+                send_enter();
+            } else {
+                s_enter_tap_waiting = true;
+                s_last_enter_tap = now;
+            }
+        }
+    } else if (code == LV_EVENT_PRESS_LOST) {
+        s_enter_press_valid = false;
+    } else if (code == LV_EVENT_GESTURE || code == LV_EVENT_GESTURE_LEFT ||
+               code == LV_EVENT_GESTURE_RIGHT) {
+        lv_event_stop_bubbling(event);
+    }
+}
 
 static void hide_glow(void)
 {
@@ -91,7 +152,8 @@ static lv_obj_t *plain_rect(lv_obj_t *parent, int w, int h, int x, int y, int ra
     lv_obj_set_style_border_width(object, 0, 0);
     lv_obj_set_style_radius(object, radius, 0);
     lv_obj_set_style_pad_all(object, 0, 0);
-    lv_obj_remove_flag(object, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_scrollable(object, false);
+    lv_obj_set_clickable(object, false);
     return object;
 }
 
@@ -104,7 +166,7 @@ lv_obj_t *voice_ui_create(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(root, 0, 0);
     lv_obj_set_style_pad_all(root, 0, 0);
-    lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(root, false);
 
     /* A real LVGL shadow provides a continuous full-screen gradient. */
     s_glow = lv_obj_create(root);
@@ -119,7 +181,8 @@ lv_obj_t *voice_ui_create(lv_obj_t *parent)
     lv_obj_set_style_shadow_spread(s_glow, 8, 0);
     lv_obj_set_style_shadow_opa(s_glow, LV_OPA_TRANSP, 0);
     lv_obj_set_style_pad_all(s_glow, 0, 0);
-    lv_obj_remove_flag(s_glow, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_scrollable(s_glow, false);
+    lv_obj_set_clickable(s_glow, false);
 
     /* Subtle expanding rings make the gradient feel alive and show speech
      * transients without changing the size of the actual button. */
@@ -133,7 +196,8 @@ lv_obj_t *voice_ui_create(lv_obj_t *parent)
         lv_obj_set_style_border_width(s_ripples[i], 10, 0);
         lv_obj_set_style_border_opa(s_ripples[i], LV_OPA_TRANSP, 0);
         lv_obj_set_style_pad_all(s_ripples[i], 0, 0);
-        lv_obj_remove_flag(s_ripples[i], LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_scrollable(s_ripples[i], false);
+        lv_obj_set_clickable(s_ripples[i], false);
     }
 
     lv_obj_t *title = lv_label_create(root);
@@ -150,7 +214,7 @@ lv_obj_t *voice_ui_create(lv_obj_t *parent)
     lv_obj_set_style_border_color(s_button, lv_color_white(), 0);
     lv_obj_set_style_border_width(s_button, 4, 0);
     lv_obj_set_style_pad_all(s_button, 0, 0);
-    lv_obj_remove_flag(s_button, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(s_button, false);
     lv_obj_add_event_cb(s_button, button_event, LV_EVENT_ALL, NULL);
 
     /* The former SVG is now drawn entirely from LVGL primitives. */
@@ -164,7 +228,8 @@ lv_obj_t *voice_ui_create(lv_obj_t *parent)
     lv_obj_set_style_border_width(capsule, 8, 0);
     lv_obj_set_style_border_color(capsule, lv_color_white(), 0);
     lv_obj_set_style_pad_all(capsule, 0, 0);
-    lv_obj_remove_flag(capsule, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_scrollable(capsule, false);
+    lv_obj_set_clickable(capsule, false);
 
     /* SVG path 5484 is a single 352-radius lower semicircle.  It has no
      * separate vertical side bars; the rounded arc ends are the two tips. */
@@ -178,12 +243,52 @@ lv_obj_t *voice_ui_create(lv_obj_t *parent)
     lv_obj_set_style_arc_opa(receiver, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_arc_opa(receiver, LV_OPA_TRANSP, LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(receiver, LV_OPA_TRANSP, LV_PART_KNOB);
-    lv_obj_remove_flag(receiver, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(receiver, false);
     plain_rect(s_button, 8, 17, 0, 43, 4);
     plain_rect(s_button, 48, 8, 0, 55, 4);
+
+    /* Everything below this full-width rule is the Enter hit target. */
+    s_enter_zone = lv_obj_create(root);
+    lv_obj_set_size(s_enter_zone, 360, 64);
+    lv_obj_align(s_enter_zone, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_bg_opa(s_enter_zone, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_color(s_enter_zone, lv_color_white(), 0);
+    lv_obj_set_style_border_width(s_enter_zone, 4, 0);
+    lv_obj_set_style_border_side(s_enter_zone, LV_BORDER_SIDE_TOP, 0);
+    lv_obj_set_style_radius(s_enter_zone, 0, 0);
+    lv_obj_set_style_pad_all(s_enter_zone, 0, 0);
+    lv_obj_set_scrollable(s_enter_zone, false);
+    lv_obj_add_event_cb(s_enter_zone, enter_event, LV_EVENT_ALL, NULL);
+
+    /* A single clean return arrow, centered below the separator. */
+    static lv_point_precise_t arrow_points[] = {
+        {74, 4}, {74, 26}, {18, 26},
+        {32, 12}, {18, 26}, {32, 40},
+    };
+    lv_obj_t *icon = lv_obj_create(s_enter_zone);
+    lv_obj_set_size(icon, 92, 44);
+    lv_obj_center(icon);
+    lv_obj_set_style_bg_opa(icon, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(icon, 0, 0);
+    lv_obj_set_style_pad_all(icon, 0, 0);
+    lv_obj_set_scrollable(icon, false);
+    lv_obj_set_clickable(icon, false);
+
+    s_enter_arrow = lv_line_create(icon);
+    lv_line_set_points(s_enter_arrow, arrow_points,
+                       sizeof(arrow_points) / sizeof(arrow_points[0]));
+    lv_obj_set_style_line_color(s_enter_arrow, lv_color_white(), 0);
+    lv_obj_set_style_line_width(s_enter_arrow, 4, 0);
+    lv_obj_set_style_line_rounded(s_enter_arrow, true, 0);
+    lv_obj_set_clickable(s_enter_arrow, false);
 
     lv_timer_create(status_timer, 33, NULL);
     return root;
 }
 
-void voice_ui_force_release(void) { set_pressed(false); }
+void voice_ui_force_release(void)
+{
+    set_pressed(false);
+    s_enter_press_valid = false;
+    s_enter_tap_waiting = false;
+}

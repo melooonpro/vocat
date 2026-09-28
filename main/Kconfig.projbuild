@@ -20,7 +20,7 @@ menu "VoCat Desktop Clock"
 
     config VOCAT_NTP_SERVER
         string "NTP server"
-        default "pool.ntp.org"
+        default "ntp.aliyun.com"
 
     config VOCAT_CLOCK_24_HOUR
         bool "Use 24-hour time"

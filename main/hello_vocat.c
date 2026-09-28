@@ -5,6 +5,7 @@
 #include <time.h>
 
 #include "app_ui.h"
+#include "air_mouse.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
@@ -20,6 +21,7 @@
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAILED_BIT    BIT1
 #define WIFI_MAX_RETRIES   8
+#define CLOCK_LOG_INTERVAL_MS 10000
 
 static const char *TAG = "vocat_clock";
 static EventGroupHandle_t s_wifi_events;
@@ -110,10 +112,14 @@ static bool system_time_is_valid(const struct tm *timeinfo)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "Starting VoCat v1.0 N32R16 clock and VoCat Mic");
+    ESP_LOGI(TAG, "Starting VoCat Clock, Mic and Mouse");
     ESP_ERROR_CHECK(app_ui_init());
     app_ui_update_clock(NULL, false, false);
     ESP_ERROR_CHECK(voice_usb_init());
+    esp_err_t mouse_result = air_mouse_init();
+    if (mouse_result != ESP_OK) {
+        ESP_LOGE(TAG, "Unable to start air mouse task: %s", esp_err_to_name(mouse_result));
+    }
 
     init_nvs();
     bool wifi_connected = wifi_start_and_wait();
@@ -130,15 +136,15 @@ void app_main(void)
         if (sync_result == ESP_OK) {
             ESP_LOGI(TAG, "System time synchronized by %s", CONFIG_VOCAT_NTP_SERVER);
         } else {
-            ESP_LOGW(TAG, "NTP server %s timed out; trying ntp.aliyun.com",
+            ESP_LOGW(TAG, "NTP server %s timed out; trying pool.ntp.org",
                      CONFIG_VOCAT_NTP_SERVER);
             esp_netif_sntp_deinit();
             esp_sntp_config_t fallback_config =
-                ESP_NETIF_SNTP_DEFAULT_CONFIG("ntp.aliyun.com");
+                ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
             ESP_ERROR_CHECK(esp_netif_sntp_init(&fallback_config));
             sync_result = esp_netif_sntp_sync_wait(pdMS_TO_TICKS(12000));
             if (sync_result == ESP_OK) {
-                ESP_LOGI(TAG, "System time synchronized by ntp.aliyun.com");
+                ESP_LOGI(TAG, "System time synchronized by pool.ntp.org");
             } else {
                 ESP_LOGW(TAG, "NTP fallback timed out; background retries remain active");
             }
@@ -148,6 +154,7 @@ void app_main(void)
     struct tm previous = {0};
     bool previous_valid = false;
     bool previous_wifi = wifi_connected;
+    TickType_t last_clock_log = xTaskGetTickCount();
 
     while (true) {
         if (s_wifi_events != NULL) {
@@ -175,6 +182,22 @@ void app_main(void)
             previous_valid = true;
         }
         previous_wifi = wifi_connected;
+
+        TickType_t ticks = xTaskGetTickCount();
+        if (app_ui_is_clock_page() &&
+            ticks - last_clock_log >= pdMS_TO_TICKS(CLOCK_LOG_INTERVAL_MS)) {
+            if (current_valid) {
+                ESP_LOGI(TAG,
+                         "Clock active: %04d-%02d-%02d %02d:%02d:%02d, Wi-Fi %s, NTP synced",
+                         current.tm_year + 1900, current.tm_mon + 1, current.tm_mday,
+                         current.tm_hour, current.tm_min, current.tm_sec,
+                         wifi_connected ? "connected" : "disconnected");
+            } else {
+                ESP_LOGI(TAG, "Clock active: waiting for time, Wi-Fi %s",
+                         wifi_connected ? "connected" : "disconnected");
+            }
+            last_clock_log = ticks;
+        }
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 }

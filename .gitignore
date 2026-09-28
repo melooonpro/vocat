@@ -1,5 +1,11 @@
 /build/
+/build-*/
 /managed_components/
 /sdkconfig
 /sdkconfig.old
+/sdkconfig.n32r16
+/sdkconfig.n32r16.old
+/sdkconfig.n16r8
+/sdkconfig.n16r8.old
 /.vscode/
+__pycache__/

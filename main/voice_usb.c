@@ -14,6 +14,7 @@
 #include "hal/usb_wrap_ll.h"
 #include "soc/usb_wrap_struct.h"
 #include "tusb.h"
+#include "usb_hid_ids.h"
 #include "usb_device_uac.h"
 #include "vocat_v1_0.h"
 
@@ -27,16 +28,25 @@ static atomic_bool s_mounted;
 static atomic_bool s_page_requested;
 static atomic_bool s_usb_active;
 static atomic_bool s_pressed;
+static atomic_bool s_enter_requested;
 static atomic_uchar s_level;
 static atomic_uchar s_level_left;
 static atomic_uchar s_level_right;
 static atomic_uchar s_waveform[VOICE_USB_WAVE_BARS];
 static atomic_uint_fast32_t s_packet_count;
 static atomic_uint_fast32_t s_read_error_count;
+static atomic_uchar s_mouse_buttons;
+static atomic_int s_mouse_dx;
+static atomic_int s_mouse_dy;
+static atomic_int s_mouse_wheel;
+static atomic_bool s_mouse_center_requested;
 static int16_t s_stereo_buffer[UAC_MONO_SAMPLES * 2];
 static bool s_codec_open;
-static bool s_hid_down;
 static bool s_usb_stack_initialized;
+static uint8_t s_keyboard_modifier;
+static uint8_t s_keyboard_keycode;
+static uint8_t s_sent_mouse_buttons;
+static bool s_enter_down;
 
 static uint8_t peak_to_level(uint32_t peak)
 {
@@ -163,21 +173,96 @@ static esp_err_t usb_start(void)
     return ESP_OK;
 }
 
-static void send_hid_state(bool down)
+static bool send_keyboard(uint8_t modifier, uint8_t keycode)
 {
-    if (!tud_hid_ready()) return;
-    uint8_t modifier = down ? (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_LEFTGUI) : 0;
-    if (tud_hid_keyboard_report(0, modifier, NULL)) {
-        s_hid_down = down;
+    uint8_t keys[6] = {0};
+    if (keycode != 0) keys[0] = keycode;
+    if (!tud_hid_keyboard_report(VOCAT_HID_REPORT_ID_KEYBOARD, modifier, keys)) return false;
+    s_keyboard_modifier = modifier;
+    s_keyboard_keycode = keycode;
+    return true;
+}
+
+static int take_mouse_delta(atomic_int *value)
+{
+    int result = atomic_exchange(value, 0);
+    if (result > 127) {
+        atomic_fetch_add(value, result - 127);
+        return 127;
+    }
+    if (result < -127) {
+        atomic_fetch_add(value, result + 127);
+        return -127;
+    }
+    return result;
+}
+
+static void process_hid(void)
+{
+    if (!atomic_load(&s_mounted) || !tud_hid_ready()) return;
+
+    const uint8_t shortcut_modifier = atomic_load(&s_pressed)
+                                              ? KEYBOARD_MODIFIER_LEFTCTRL |
+                                                    KEYBOARD_MODIFIER_LEFTGUI
+                                              : 0;
+
+    /* Keyboard reports take priority so Enter is always released promptly. */
+    if (s_enter_down) {
+        if (send_keyboard(0, 0)) s_enter_down = false;
+        return;
+    }
+    if (atomic_exchange(&s_enter_requested, false)) {
+        if (send_keyboard(0, HID_KEY_ENTER)) {
+            s_enter_down = true;
+        } else {
+            atomic_store(&s_enter_requested, true);
+        }
+        return;
+    }
+    if (shortcut_modifier != s_keyboard_modifier || s_keyboard_keycode != 0) {
+        send_keyboard(shortcut_modifier, 0);
+        return;
+    }
+
+    if (atomic_exchange(&s_mouse_center_requested, false)) {
+        /* Buttons byte followed by little-endian absolute X/Y. 0x4000 is
+         * the center of the descriptor's 0..32767 logical coordinate range. */
+        const uint8_t center_report[] = {0, 0x00, 0x40, 0x00, 0x40};
+        if (!tud_hid_report(VOCAT_HID_REPORT_ID_ABSOLUTE_MOUSE,
+                            center_report, sizeof(center_report))) {
+            atomic_store(&s_mouse_center_requested, true);
+        }
+        return;
+    }
+
+    uint8_t buttons = atomic_load(&s_mouse_buttons);
+    int dx = take_mouse_delta(&s_mouse_dx);
+    int dy = take_mouse_delta(&s_mouse_dy);
+    int wheel = take_mouse_delta(&s_mouse_wheel);
+    if (buttons == s_sent_mouse_buttons && dx == 0 && dy == 0 && wheel == 0) return;
+
+    if (tud_hid_mouse_report(VOCAT_HID_REPORT_ID_MOUSE, buttons,
+                             (int8_t)dx, (int8_t)dy, (int8_t)wheel, 0)) {
+        s_sent_mouse_buttons = buttons;
+    } else {
+        atomic_fetch_add(&s_mouse_dx, dx);
+        atomic_fetch_add(&s_mouse_dy, dy);
+        atomic_fetch_add(&s_mouse_wheel, wheel);
     }
 }
 
 static void usb_stop(void)
 {
     atomic_store(&s_pressed, false);
-    if (s_hid_down) {
-        send_hid_state(false);
-        vTaskDelay(pdMS_TO_TICKS(20));
+    atomic_store(&s_enter_requested, false);
+    voice_usb_mouse_release_all();
+    if (atomic_load(&s_mounted) && tud_hid_ready()) {
+        send_keyboard(0, 0);
+        vTaskDelay(pdMS_TO_TICKS(12));
+        if (tud_hid_ready()) {
+            tud_hid_mouse_report(VOCAT_HID_REPORT_ID_MOUSE, 0, 0, 0, 0, 0);
+        }
+        vTaskDelay(pdMS_TO_TICKS(12));
     }
     tud_disconnect();
     vTaskDelay(pdMS_TO_TICKS(20));
@@ -187,7 +272,10 @@ static void usb_stop(void)
     }
     atomic_store(&s_mounted, false);
     atomic_store(&s_usb_active, false);
-    s_hid_down = false;
+    s_keyboard_modifier = 0;
+    s_keyboard_keycode = 0;
+    s_sent_mouse_buttons = 0;
+    s_enter_down = false;
     clear_audio_state();
 
     /* The ESP32-S3 internal PHY is shared by USB-OTG and USB Serial/JTAG. */
@@ -212,10 +300,7 @@ static void usb_manager_task(void *ctx)
             usb_stop();
         }
 
-        if (atomic_load(&s_usb_active)) {
-            bool want_hid_down = atomic_load(&s_pressed) && atomic_load(&s_mounted);
-            if (want_hid_down != s_hid_down) send_hid_state(want_hid_down);
-        }
+        if (atomic_load(&s_usb_active)) process_hid();
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
@@ -237,6 +322,47 @@ void voice_usb_set_pressed(bool pressed)
 {
     atomic_store(&s_pressed, pressed && atomic_load(&s_usb_active));
     if (!pressed) clear_audio_state();
+}
+
+void voice_usb_send_enter(void)
+{
+    if (atomic_load(&s_usb_active)) atomic_store(&s_enter_requested, true);
+}
+
+void voice_usb_mouse_set_button(uint8_t button_mask, bool pressed)
+{
+    if (pressed) {
+        atomic_fetch_or(&s_mouse_buttons, button_mask);
+    } else {
+        atomic_fetch_and(&s_mouse_buttons, (uint8_t)~button_mask);
+    }
+}
+
+void voice_usb_mouse_move(int dx, int dy)
+{
+    if (!atomic_load(&s_usb_active)) return;
+    atomic_fetch_add(&s_mouse_dx, dx);
+    atomic_fetch_add(&s_mouse_dy, dy);
+}
+
+void voice_usb_mouse_scroll(int steps)
+{
+    if (!atomic_load(&s_usb_active)) return;
+    atomic_fetch_add(&s_mouse_wheel, steps);
+}
+
+void voice_usb_mouse_center(void)
+{
+    if (atomic_load(&s_usb_active)) atomic_store(&s_mouse_center_requested, true);
+}
+
+void voice_usb_mouse_release_all(void)
+{
+    atomic_store(&s_mouse_buttons, 0);
+    atomic_store(&s_mouse_dx, 0);
+    atomic_store(&s_mouse_dy, 0);
+    atomic_store(&s_mouse_wheel, 0);
+    atomic_store(&s_mouse_center_requested, false);
 }
 
 bool voice_usb_is_mounted(void) { return atomic_load(&s_mounted); }
