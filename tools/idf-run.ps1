@@ -18,7 +18,7 @@ if (-not (Test-Path -LiteralPath $idfPython) -or -not (Test-Path -LiteralPath $i
     throw 'ESP-IDF 6.1 Python environment or idf.py was not found.'
 }
 
-# This script is normally launched by idf.cmd with a one-process execution
+# This internal script is normally launched by idf.cmd with a one-process execution
 # policy bypass. All remaining arguments are forwarded directly to idf.py.
 . $idfProfile
 & $idfPython $idfEntry @IdfArguments

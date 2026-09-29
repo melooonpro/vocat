@@ -9,8 +9,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$projectDirectory = $PSScriptRoot
-$idfLauncher = Join-Path $projectDirectory 'idf.cmd'
+$toolsDirectory = $PSScriptRoot
+$projectDirectory = Split-Path -Parent $toolsDirectory
+$idfLauncher = Join-Path $toolsDirectory 'idf.cmd'
 $idfProfile = 'C:\Espressif\tools\Microsoft.v6.1.PowerShell_profile.ps1'
 
 if (-not (Test-Path -LiteralPath $idfLauncher)) {
@@ -80,7 +81,7 @@ try {
         exit $LASTEXITCODE
     }
 
-    & $idfPython (Join-Path $projectDirectory 'vocat-monitor.py') $Port
+    & $idfPython (Join-Path $toolsDirectory 'vocat-monitor.py') $Port
     exit $LASTEXITCODE
 }
 finally {

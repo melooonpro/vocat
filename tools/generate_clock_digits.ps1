@@ -1,5 +1,5 @@
 param(
-    [string] $Output = (Join-Path $PSScriptRoot 'main\clock_digits.bin')
+    [string] $Output = (Join-Path (Split-Path -Parent $PSScriptRoot) 'main\clock_digits.bin')
 )
 
 $ErrorActionPreference = 'Stop'

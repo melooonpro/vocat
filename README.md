@@ -48,7 +48,7 @@ VoCat Clock  <->  VoCat Mic  <->  VoCat Mouse
 | N16R8 | 16 MB | 8 MB | Quad QIO/STR | `sdkconfig.defaults.n16r8` | `partitions_n16r8.csv` |
 
 两套配置均使用 6 MiB factory 应用分区，其余 Flash 用作 SPIFFS。普通的
-`idf.cmd build` 和 `cfg` 使用工程根目录中的默认 N32R16 配置；`fmu` 会在构建前
+`tools/idf.cmd build` 和 `cfg` 使用工程根目录中的默认 N32R16 配置；`fmu` 会在构建前
 读取设备 Flash 容量，在 N16R8 与 N32R16 配置之间自动选择。
 
 ## 环境要求
@@ -58,7 +58,7 @@ VoCat Clock  <->  VoCat Mic  <->  VoCat Mouse
 - ESP-IDF Python 环境，默认位于 `C:\Espressif\tools`
 - VoCat v1.0，通过 ESP32-S3 原生 USB 接口连接
 
-工程附带的 `idf.cmd`、`cfg.cmd` 和 `fmu.cmd` 会自动加载 ESP-IDF PowerShell
+工程 `tools/` 目录附带的 `idf.cmd`、`cfg.cmd` 和 `fmu.cmd` 会自动加载 ESP-IDF PowerShell
 环境，因此通常不需要手动执行 `export.ps1`。
 
 ## 快速开始
@@ -68,7 +68,7 @@ VoCat Clock  <->  VoCat Mic  <->  VoCat Mouse
 在工程目录执行：
 
 ```powershell
-.\cfg.cmd
+.\tools\cfg.cmd
 ```
 
 进入 `VoCat Desktop Clock` 菜单，设置：
@@ -79,7 +79,7 @@ VoCat Clock  <->  VoCat Mic  <->  VoCat Mouse
 - `NTP server`，默认是 `ntp.aliyun.com`
 - `Use 24-hour time`
 
-如果已经把 `F:\esp-proj\vocat` 加入用户 `PATH`，可以在任意目录直接执行：
+如果已经把 `F:\esp-proj\vocat\tools` 加入用户 `PATH`，可以在任意目录直接执行：
 
 ```powershell
 cfg
@@ -90,15 +90,15 @@ cfg
 ### 2. 自动识别型号、编译、烧录和监视
 
 ```powershell
-.\fmu.cmd
+.\tools\fmu.cmd
 ```
 
 也可以指定串口或硬件型号：
 
 ```powershell
-.\fmu.cmd COM6
-.\fmu.cmd COM6 N16R8
-.\fmu.cmd COM6 N32R16
+.\tools\fmu.cmd COM6
+.\tools\fmu.cmd COM6 N16R8
+.\tools\fmu.cmd COM6 N32R16
 ```
 
 设备必须停留在 Clock 页面，USB Serial/JTAG 串口才会存在。如果设备正处于
@@ -108,27 +108,27 @@ Mic/Mouse 页面，请先滑回 Clock 页面，再执行烧录命令。
 
 ```powershell
 # N16R8
-.\idf.cmd -B build-n16r8 "-DSDKCONFIG=sdkconfig.n16r8" "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults.n16r8" build
+.\tools\idf.cmd -B build-n16r8 "-DSDKCONFIG=sdkconfig.n16r8" "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults.n16r8" build
 
 # N32R16
-.\idf.cmd -B build-n32r16 "-DSDKCONFIG=sdkconfig.n32r16" "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults.n32r16" build
+.\tools\idf.cmd -B build-n32r16 "-DSDKCONFIG=sdkconfig.n32r16" "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults.n32r16" build
 ```
 
 默认 N32R16 构建也可以使用：
 
 ```powershell
-.\idf.cmd build
+.\tools\idf.cmd build
 ```
 
 ## 命令行工具
 
 | 命令 | 作用 |
 | --- | --- |
-| `cfg` / `.\cfg.cmd` | 打开本工程的 ESP-IDF `menuconfig` |
-| `fmu` / `.\fmu.cmd` | 自动识别串口和硬件、编译、烧录并打开可重连监视器 |
-| `.\idf.cmd <参数>` | 在正确的 ESP-IDF 6.1 环境中执行任意 `idf.py` 操作 |
+| `cfg` / `.\tools\cfg.cmd` | 打开本工程的 ESP-IDF `menuconfig` |
+| `fmu` / `.\tools\fmu.cmd` | 自动识别串口和硬件、编译、烧录并打开可重连监视器 |
+| `idf` / `.\tools\idf.cmd <参数>` | 在正确的 ESP-IDF 6.1 环境中执行任意 `idf.py` 操作 |
 
-`cfg.cmd` 固定使用 VoCat 工程目录，因此加入 `PATH` 后可从任意目录调用。额外参数
+`tools/cfg.cmd` 固定使用 VoCat 工程目录，因此把 `tools` 加入 `PATH` 后可从任意目录调用。额外参数
 会继续传给 `idf.py menuconfig`。
 
 ## USB 页面切换与日志
@@ -141,7 +141,7 @@ ESP32-S3 内部 USB PHY 由 USB Serial/JTAG 和 USB-OTG 共用：
 - 返回 Clock 页面：释放所有 HID 按键，断开 UAC/HID，恢复原 COM 端口。
 
 VS Code ESP-IDF 自带 monitor 会把这种预期断线显示为红色 `ClearCommError`。
-`fmu` 改用工程自带的 `vocat-monitor.py`：断线时安静等待，COM 端口恢复后自动
+`fmu` 改用工程自带的 `tools/vocat-monitor.py`：断线时安静等待，COM 端口恢复后自动
 重连，不输出乱码或异常堆栈。按 `Ctrl+]` 退出监视器。
 
 监视器默认按日志等级着色：
@@ -156,8 +156,8 @@ VS Code ESP-IDF 自带 monitor 会把这种预期断线显示为红色 `ClearCom
 单独启动或关闭颜色：
 
 ```powershell
-python .\vocat-monitor.py COM6
-python .\vocat-monitor.py COM6 --no-color
+python .\tools\vocat-monitor.py COM6
+python .\tools\vocat-monitor.py COM6 --no-color
 ```
 
 ## 项目结构
@@ -178,11 +178,12 @@ main/
 sdkconfig.defaults       默认 N32R16 配置
 sdkconfig.defaults.*     N16R8/N32R16 独立硬件配置
 partitions*.csv          默认和两种硬件的分区表
-cfg.cmd                  menuconfig 快捷命令
-fmu.cmd / fmu-run.ps1    自动检测、构建、烧录和监视
-idf.cmd / idf.ps1        ESP-IDF 6.1 命令包装器
-vocat-monitor.py         彩色、可重连串口监视器
-generate_clock_digits.ps1 生成翻页时钟数字素材
+tools/
+  cfg.cmd                  menuconfig 快捷命令
+  fmu.cmd / fmu-run.ps1    自动检测、构建、烧录和监视
+  idf.cmd / idf-run.ps1    ESP-IDF 6.1 命令包装器
+  vocat-monitor.py         彩色、可重连串口监视器
+  generate_clock_digits.ps1 生成翻页时钟数字素材
 ```
 
 ## 已知行为
