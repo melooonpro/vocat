@@ -18,6 +18,7 @@
 #define AIR_MOUSE_STATIONARY_DPS 3.5f
 #define AIR_MOUSE_STATIONARY_SAMPLES 30
 #define AIR_MOUSE_BIAS_TRACK_ALPHA 0.02f
+#define AIR_MOUSE_STATUS_LOG_MS 10000
 
 static const char *TAG = "air_mouse";
 static atomic_bool s_active;
@@ -80,6 +81,7 @@ static int take_whole_pixels(float *value)
 static bool calibrate(float *bias_x, float *bias_y, float *bias_z)
 {
     atomic_store(&s_calibrating, true);
+    ESP_LOGI(TAG, "Calibration started; keep the board still");
     *bias_x = 0.0f;
     *bias_y = 0.0f;
     *bias_z = 0.0f;
@@ -107,6 +109,8 @@ static bool calibrate(float *bias_x, float *bias_y, float *bias_z)
 
     if (collected != AIR_MOUSE_CALIBRATION_SAMPLES) {
         atomic_store(&s_calibrating, false);
+        ESP_LOGW(TAG, "Calibration cancelled after %u/%u still samples",
+                 collected, AIR_MOUSE_CALIBRATION_SAMPLES);
         return false;
     }
     *bias_x /= collected;
@@ -131,6 +135,10 @@ static void air_mouse_task(void *ctx)
     float filtered_x = 0.0f, filtered_y = 0.0f;
     float remainder_x = 0.0f, remainder_y = 0.0f;
     unsigned stationary_samples = 0;
+    TickType_t last_status_log = xTaskGetTickCount();
+    unsigned sample_count = 0;
+    unsigned movement_count = 0;
+    unsigned read_errors = 0;
 
     while (true) {
         bool active = atomic_load(&s_active);
@@ -150,13 +158,17 @@ static void air_mouse_task(void *ctx)
             stationary_samples = 0;
             if (!calibrate(&bias_x, &bias_y, &bias_z)) continue;
             was_active = true;
+            last_status_log = xTaskGetTickCount();
+            sample_count = movement_count = read_errors = 0;
         }
 
         float gyro_x, gyro_y, gyro_z;
         if (bmi270_get_gyro_data(s_imu, &gyro_x, &gyro_y, &gyro_z) != ESP_OK) {
+            ++read_errors;
             vTaskDelay(pdMS_TO_TICKS(AIR_MOUSE_SAMPLE_MS));
             continue;
         }
+        ++sample_count;
         /* Cursor axes are intentionally mapped independently of the BMI270
          * axis names: screen X uses gyro Y, while screen Y uses gyro X. */
         gyro_x -= bias_x;
@@ -200,10 +212,22 @@ static void air_mouse_task(void *ctx)
             int dy = take_whole_pixels(&remainder_y);
             atomic_store(&s_last_dx, dx);
             atomic_store(&s_last_dy, dy);
-            if (dx != 0 || dy != 0) voice_usb_mouse_move(dx, dy);
+            if (dx != 0 || dy != 0) {
+                voice_usb_mouse_move(dx, dy);
+                ++movement_count;
+            }
         } else {
             atomic_store(&s_last_dx, 0);
             atomic_store(&s_last_dy, 0);
+        }
+        TickType_t now = xTaskGetTickCount();
+        if (now - last_status_log >= pdMS_TO_TICKS(AIR_MOUSE_STATUS_LOG_MS)) {
+            ESP_LOGI(TAG, "Mouse status: IMU samples=%u, movement updates=%u, read errors=%u, scroll=%s, stationary=%s",
+                     sample_count, movement_count, read_errors,
+                     atomic_load(&s_scroll_active) ? "on" : "off",
+                     stationary ? "yes" : "no");
+            sample_count = movement_count = read_errors = 0;
+            last_status_log = now;
         }
         vTaskDelay(pdMS_TO_TICKS(AIR_MOUSE_SAMPLE_MS));
     }
@@ -218,7 +242,10 @@ esp_err_t air_mouse_init(void)
 
 void air_mouse_set_active(bool active)
 {
-    atomic_store(&s_active, active);
+    bool previous = atomic_exchange(&s_active, active);
+    if (previous != active) {
+        ESP_LOGI(TAG, "Mouse page %s", active ? "active" : "inactive");
+    }
     if (!active) {
         atomic_store(&s_scroll_active, false);
         voice_usb_mouse_release_all();

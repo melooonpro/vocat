@@ -5,6 +5,7 @@
 #include "bsp/esp_vocat.h"
 #include "clock_ui.h"
 #include "esp_check.h"
+#include "esp_log.h"
 #include "mouse_ui.h"
 #include "voice_ui.h"
 #include "voice_usb.h"
@@ -22,6 +23,8 @@ typedef enum {
 } app_page_t;
 
 static volatile app_page_t s_page = APP_PAGE_CLOCK;
+static const char *TAG = "vocat_ui";
+static const char *const s_page_names[] = {"Clock", "Mic", "Mouse"};
 
 static void set_x(void *object, int32_t value) { lv_obj_set_x((lv_obj_t *)object, value); }
 
@@ -41,6 +44,7 @@ static void slide(lv_obj_t *object, int from, int to)
 static void show_page(app_page_t page)
 {
     if (page == s_page || page >= APP_PAGE_COUNT) return;
+    ESP_LOGI(TAG, "Page %s -> %s", s_page_names[s_page], s_page_names[page]);
 
     if (s_page == APP_PAGE_VOICE) voice_ui_force_release();
     if (s_page == APP_PAGE_MOUSE) {

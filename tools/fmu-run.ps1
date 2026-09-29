@@ -5,7 +5,11 @@ param(
 
     [Parameter(Position = 1)]
     [ValidateSet('Auto', 'N32R16', 'N16R8')]
-    [string] $Model = 'Auto'
+    [string] $Model = 'Auto',
+
+    [Parameter(Position = 2)]
+    [ValidatePattern('^(?i:COM\d+)$')]
+    [string] $LogPort
 )
 
 $ErrorActionPreference = 'Stop'
@@ -81,8 +85,23 @@ try {
         exit $LASTEXITCODE
     }
 
-    & $idfPython (Join-Path $toolsDirectory 'vocat-monitor.py') $Port
-    exit $LASTEXITCODE
+    Write-Host 'VoCat logs are now forwarded to the ESP-NOW receiver.' -ForegroundColor Cyan
+    if ($LogPort) {
+        Write-Host "Opening the receiver monitor on $LogPort..." -ForegroundColor Cyan
+        $receiverDirectory = Join-Path (Split-Path -Parent $projectDirectory) 'esp-now-log-s3'
+        Push-Location $receiverDirectory
+        try {
+            & $idfPython (Join-Path $env:IDF_PATH 'tools\idf.py') -B build-s3 -p $LogPort monitor
+            exit $LASTEXITCODE
+        }
+        finally {
+            Pop-Location
+        }
+    }
+
+    Write-Host 'Open the receiver board monitor separately to view logs.' -ForegroundColor Yellow
+    Write-Host 'Example: cd F:\esp-proj\esp-now-log-s3; F:\esp-proj\vocat\tools\idf.cmd -B build-s3 -p COM7 monitor'
+    exit 0
 }
 finally {
     Pop-Location

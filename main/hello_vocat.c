@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_netif_sntp.h"
+#include "espnow_log.h"
 #include "voice_usb.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
@@ -19,8 +20,6 @@
 #include "sdkconfig.h"
 
 #define WIFI_CONNECTED_BIT BIT0
-#define WIFI_FAILED_BIT    BIT1
-#define WIFI_MAX_RETRIES   8
 #define CLOCK_LOG_INTERVAL_MS 10000
 
 static const char *TAG = "vocat_clock";
@@ -36,18 +35,13 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         xEventGroupClearBits(s_wifi_events, WIFI_CONNECTED_BIT);
-        if (s_wifi_retries++ < WIFI_MAX_RETRIES) {
-            ESP_LOGW(TAG, "Wi-Fi disconnected, retrying (%d/%d)",
-                     s_wifi_retries, WIFI_MAX_RETRIES);
-            esp_wifi_connect();
-        } else {
-            xEventGroupSetBits(s_wifi_events, WIFI_FAILED_BIT);
-        }
+        ++s_wifi_retries;
+        ESP_LOGW(TAG, "Wi-Fi disconnected, retrying (%d)", s_wifi_retries);
+        esp_wifi_connect();
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         const ip_event_got_ip_t *event = event_data;
         ESP_LOGI(TAG, "Wi-Fi connected, address: " IPSTR, IP2STR(&event->ip_info.ip));
         s_wifi_retries = 0;
-        xEventGroupClearBits(s_wifi_events, WIFI_FAILED_BIT);
         xEventGroupSetBits(s_wifi_events, WIFI_CONNECTED_BIT);
     }
 }
@@ -88,9 +82,10 @@ static bool wifi_start_and_wait(void)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
 
     EventBits_t bits = xEventGroupWaitBits(s_wifi_events,
-                                            WIFI_CONNECTED_BIT | WIFI_FAILED_BIT,
+                                            WIFI_CONNECTED_BIT,
                                             pdFALSE, pdFALSE, pdMS_TO_TICKS(30000));
     return (bits & WIFI_CONNECTED_BIT) != 0;
 }
@@ -112,6 +107,7 @@ static bool system_time_is_valid(const struct tm *timeinfo)
 
 void app_main(void)
 {
+    ESP_ERROR_CHECK(vocat_espnow_log_init());
     ESP_LOGI(TAG, "Starting VoCat Clock, Mic and Mouse");
     ESP_ERROR_CHECK(app_ui_init());
     app_ui_update_clock(NULL, false, false);
@@ -123,6 +119,9 @@ void app_main(void)
 
     init_nvs();
     bool wifi_connected = wifi_start_and_wait();
+    if (s_wifi_events != NULL) {
+        ESP_ERROR_CHECK(vocat_espnow_log_start());
+    }
     app_ui_update_clock(NULL, false, wifi_connected);
 
     if (wifi_connected) {

@@ -71,7 +71,7 @@ VoCat Clock  <->  VoCat Mic  <->  VoCat Mouse
 .\tools\cfg.cmd
 ```
 
-进入 `VoCat Desktop Clock` 菜单，设置：
+进入 `VoCat Desktop` 菜单，设置：
 
 - `Wi-Fi SSID`
 - `Wi-Fi password`
@@ -101,8 +101,9 @@ cfg
 .\tools\fmu.cmd COM6 N32R16
 ```
 
-设备必须停留在 Clock 页面，USB Serial/JTAG 串口才会存在。如果设备正处于
-Mic/Mouse 页面，请先滑回 Clock 页面，再执行烧录命令。
+VoCat 的 USB 仍用于下载固件。日志现在通过 ESP-NOW 发往第二块接收板；首次使用前，
+请先按 [`F:\esp-proj\esp-now-log-s3\README.md`](F:\esp-proj\esp-now-log-s3\README.md)
+配置并启动接收板。
 
 ### 3. 手动构建指定型号
 
@@ -125,7 +126,7 @@ Mic/Mouse 页面，请先滑回 Clock 页面，再执行烧录命令。
 | 命令 | 作用 |
 | --- | --- |
 | `cfg` / `.\tools\cfg.cmd` | 打开本工程的 ESP-IDF `menuconfig` |
-| `fmu` / `.\tools\fmu.cmd` | 自动识别串口和硬件、编译、烧录并打开可重连监视器 |
+| `fmu` / `.\tools\fmu.cmd` | 自动识别硬件、编译和烧录；可选监视 ESP-NOW 接收板 |
 | `idf` / `.\tools\idf.cmd <参数>` | 在正确的 ESP-IDF 6.1 环境中执行任意 `idf.py` 操作 |
 
 `tools/cfg.cmd` 固定使用 VoCat 工程目录，因此把 `tools` 加入 `PATH` 后可从任意目录调用。额外参数
@@ -135,30 +136,26 @@ Mic/Mouse 页面，请先滑回 Clock 页面，再执行烧录命令。
 
 ESP32-S3 内部 USB PHY 由 USB Serial/JTAG 和 USB-OTG 共用：
 
-- Clock 页面：UAC/HID 断开，USB PHY 用于 Serial/JTAG 日志和烧录。
+- Clock 页面：UAC/HID 断开，USB PHY 可用于下载固件。
 - Mic/Mouse 页面：USB PHY 切换为 USB-OTG，Windows 枚举 `VoCat Mic` UAC 与
   键鼠 HID 复合设备，此时原 COM 端口暂时消失。
 - 返回 Clock 页面：释放所有 HID 按键，断开 UAC/HID，恢复原 COM 端口。
 
-VS Code ESP-IDF 自带 monitor 会把这种预期断线显示为红色 `ClearCommError`。
-`fmu` 改用工程自带的 `tools/vocat-monitor.py`：断线时安静等待，COM 端口恢复后自动
-重连，不输出乱码或异常堆栈。按 `Ctrl+]` 退出监视器。
+VoCat 的应用日志由 `esp_log_set_vprintf()` 捕获，并通过 ESP-NOW 发给接收板。VoCat
+同时保留 USB Serial/JTAG 本地日志和异常输出，Clock 页面可直接监视；Mic/Mouse 页面切换 USB PHY 后，本地 COM 口会暂时消失。
+S3 接收板通过 CH343 UART 串口把收到的日志显示到电脑。两块板必须连接同一个
+2.4 GHz Wi-Fi 网络，S3 接收端工程位于 `F:\esp-proj\esp-now-log-s3`；
+C3 原生 USB 接收端工程位于 `F:\esp-proj\esp-now-log-c3`。
 
-监视器默认按日志等级着色：
-
-- Info：绿色
-- Warning：黄色
-- Error：红色
-- Debug：蓝色
-- Verbose：灰色
-- 监视器状态：青色
-
-单独启动或关闭颜色：
+如果同时连接 VoCat 和接收板，可以把接收板 COM 口作为第三个参数，让 `fmu` 烧录后打开
+接收端监视器：
 
 ```powershell
-python .\tools\vocat-monitor.py COM6
-python .\tools\vocat-monitor.py COM6 --no-color
+fmu COM6 N32R16 COM7
 ```
+
+这里 `COM6` 是 VoCat 下载端口，`COM7` 是接收板监视器端口。只传 VoCat 端口和型号时，
+`fmu` 烧录后会退出，并提示如何单独打开接收板监视器。
 
 ## 项目结构
 
@@ -173,6 +170,7 @@ main/
   voice_usb.c            ES7210 采集、UAC、键鼠 HID 与 USB PHY 切换
   usb_descriptors.c      UAC + 键鼠 HID 复合设备描述符
   vocat_v1_0.c           VoCat v1.0 LCD、I2S 和 ES7210 兼容层
+  espnow_log.c           捕获、排队并可靠转发 ESP-IDF 应用日志
   usb/tusb_config.h      TinyUSB UAC/HID 配置
 
 sdkconfig.defaults       默认 N32R16 配置
@@ -180,9 +178,9 @@ sdkconfig.defaults.*     N16R8/N32R16 独立硬件配置
 partitions*.csv          默认和两种硬件的分区表
 tools/
   cfg.cmd                  menuconfig 快捷命令
-  fmu.cmd / fmu-run.ps1    自动检测、构建、烧录和监视
+  fmu.cmd / fmu-run.ps1    自动检测、构建、烧录和可选的接收板监视
   idf.cmd / idf-run.ps1    ESP-IDF 6.1 命令包装器
-  vocat-monitor.py         彩色、可重连串口监视器
+  vocat-monitor.py         本地 VoCat 串口可重连监视器
   generate_clock_digits.ps1 生成翻页时钟数字素材
 ```
 

@@ -1,4 +1,4 @@
-menu "VoCat Desktop Clock"
+menu "VoCat Desktop"
 
     config VOCAT_WIFI_SSID
         string "Wi-Fi SSID"

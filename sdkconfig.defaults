@@ -15,10 +15,12 @@ CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 
-# Clock page uses USB Serial/JTAG for logs. The voice page temporarily switches
-# the shared internal PHY to the UAC + HID composite device.
-CONFIG_ESP_CONSOLE_UART_DEFAULT=y
-CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=y
+# VoCat application logs are forwarded by ESP-NOW and retained on USB
+# Serial/JTAG when that interface is available (such as on the Clock page).
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
+CONFIG_USJ_ENABLE_USB_SERIAL_JTAG=y
 
 # LVGL application fonts
 CONFIG_LV_FONT_MONTSERRAT_20=y

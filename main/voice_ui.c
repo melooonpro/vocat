@@ -2,6 +2,9 @@
 
 #include "voice_ui.h"
 #include "voice_usb.h"
+#include "esp_log.h"
+
+static const char *TAG = "vocat_mic_ui";
 
 static lv_obj_t *s_button;
 static lv_obj_t *s_enter_zone;
@@ -29,6 +32,7 @@ static void restore_enter_color(lv_timer_t *timer)
 static void send_enter(void)
 {
     voice_usb_send_enter();
+    ESP_LOGI(TAG, "Double tap: Enter requested");
     lv_color_t active_color = lv_color_hex(0x28e878);
     lv_obj_set_style_border_color(s_enter_zone, active_color, 0);
     lv_obj_set_style_line_color(s_enter_arrow, active_color, 0);
@@ -85,6 +89,7 @@ static void set_pressed(bool pressed)
     if (s_pressed == pressed) return;
     s_pressed = pressed;
     voice_usb_set_pressed(pressed);
+    ESP_LOGI(TAG, "Mic button %s", pressed ? "pressed" : "released");
     if (pressed) {
         s_glow_phase = 0;
         s_level_smooth = 0;

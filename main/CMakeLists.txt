@@ -1,9 +1,9 @@
 idf_component_register(
     SRCS "usb_descriptors.c" "hello_vocat.c" "app_ui.c" "clock_ui.c" "voice_ui.c"
-         "mouse_ui.c" "air_mouse.c" "voice_usb.c" "vocat_v1_0.c"
+         "mouse_ui.c" "air_mouse.c" "voice_usb.c" "vocat_v1_0.c" "espnow_log.c"
     INCLUDE_DIRS "." "usb"
     REQUIRES esp_vocat esp_codec_dev usb_device_uac espressif__tinyusb espressif__bmi270
-             esp_event esp_netif esp_wifi nvs_flash
+             esp_common esp_event esp_netif esp_wifi freertos log nvs_flash
     EMBED_FILES "clock_digits.bin"
 )
 

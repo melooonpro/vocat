@@ -4,7 +4,10 @@
 
 #include <stdlib.h>
 #include "air_mouse.h"
+#include "esp_log.h"
 #include "voice_usb.h"
+
+static const char *TAG = "vocat_mouse_ui";
 
 #define WHEEL_STEP_PIXELS 18
 #define INTERACTION_TOP 88
@@ -40,8 +43,10 @@ static void mouse_button_event(lv_event_t *event)
     lv_event_code_t code = lv_event_get_code(event);
     if (code == LV_EVENT_PRESSED) {
         voice_usb_mouse_set_button(context->button, true);
+        ESP_LOGI(TAG, "%s button pressed", context->button == VOICE_USB_MOUSE_BUTTON_LEFT ? "Left" : "Right");
     } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
         voice_usb_mouse_set_button(context->button, false);
+        ESP_LOGI(TAG, "%s button released", context->button == VOICE_USB_MOUSE_BUTTON_LEFT ? "Left" : "Right");
     } else if (code == LV_EVENT_GESTURE || code == LV_EVENT_GESTURE_LEFT ||
                code == LV_EVENT_GESTURE_RIGHT) {
         /* Mouse interaction owns this area; page navigation stays in the title band. */
@@ -59,6 +64,7 @@ static void restore_center_visual(lv_timer_t *timer)
 static void center_cursor(void)
 {
     voice_usb_mouse_center();
+    ESP_LOGI(TAG, "Cursor center requested");
     lv_color_t active_color = lv_color_hex(0x28e878);
     lv_obj_set_style_border_color(s_center_zone, active_color, 0);
     lv_obj_set_style_text_color(s_center_label, active_color, 0);
@@ -76,6 +82,7 @@ static void wheel_event(lv_event_t *event)
         s_wheel_remainder = 0;
         s_wheel_pressed = true;
         air_mouse_set_scroll_active(true);
+        ESP_LOGI(TAG, "Scroll gesture started");
         lv_obj_set_style_bg_color(s_wheel_indicator, lv_color_hex(0x28e878), 0);
     } else if (code == LV_EVENT_PRESSING && s_wheel_pressed) {
         lv_point_t point;
@@ -90,6 +97,7 @@ static void wheel_event(lv_event_t *event)
             s_wheel_remainder -= steps * WHEEL_STEP_PIXELS;
         }
     } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        if (s_wheel_pressed) ESP_LOGI(TAG, "Scroll gesture ended");
         s_wheel_pressed = false;
         s_wheel_remainder = 0;
         air_mouse_set_scroll_active(false);

@@ -19,6 +19,62 @@
 #define VOCAT_V10_I2S_DIN   GPIO_NUM_15
 
 static const char *TAG = "vocat_v1_0";
+static const audio_codec_data_if_t *s_bsp_mic_data;
+static bool s_mic_i2s_enabled;
+
+static bool mic_data_is_open(const audio_codec_data_if_t *data)
+{
+    (void)data;
+    return s_bsp_mic_data->is_open(s_bsp_mic_data);
+}
+
+static int mic_data_enable(const audio_codec_data_if_t *data,
+                           esp_codec_dev_type_t type, bool enable)
+{
+    (void)data;
+    if (type == ESP_CODEC_DEV_TYPE_IN && s_mic_i2s_enabled == enable) {
+        return ESP_CODEC_DEV_OK;
+    }
+    int result = s_bsp_mic_data->enable(s_bsp_mic_data, type, enable);
+    if (result == ESP_CODEC_DEV_OK && type == ESP_CODEC_DEV_TYPE_IN) {
+        s_mic_i2s_enabled = enable;
+    }
+    return result;
+}
+
+static int mic_data_set_fmt(const audio_codec_data_if_t *data,
+                            esp_codec_dev_type_t type,
+                            esp_codec_dev_sample_info_t *format)
+{
+    (void)data;
+    /* BSP already configured this exact format. Its codec data interface
+     * unconditionally disables RX on every set_fmt, including after close. */
+    if (type == ESP_CODEC_DEV_TYPE_IN &&
+        format->sample_rate == VOCAT_V10_MIC_SAMPLE_RATE &&
+        format->channel == 2 && format->bits_per_sample == 16 &&
+        format->channel_mask == 0) {
+        return ESP_CODEC_DEV_OK;
+    }
+    int result = s_bsp_mic_data->set_fmt(s_bsp_mic_data, type, format);
+    if (result == ESP_CODEC_DEV_OK && type == ESP_CODEC_DEV_TYPE_IN) {
+        s_mic_i2s_enabled = false;
+    }
+    return result;
+}
+
+static int mic_data_read(const audio_codec_data_if_t *data,
+                         uint8_t *buffer, int size)
+{
+    (void)data;
+    return s_bsp_mic_data->read(s_bsp_mic_data, buffer, size);
+}
+
+static const audio_codec_data_if_t s_mic_data = {
+    .is_open = mic_data_is_open,
+    .enable = mic_data_enable,
+    .set_fmt = mic_data_set_fmt,
+    .read = mic_data_read,
+};
 
 esp_err_t vocat_v1_0_prepare_display(void)
 {
@@ -42,7 +98,7 @@ esp_err_t vocat_v1_0_prepare_display(void)
 esp_codec_dev_handle_t vocat_v1_0_microphone_init(void)
 {
     const i2s_std_config_t i2s_config = {
-        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(48000),
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(VOCAT_V10_MIC_SAMPLE_RATE),
         .slot_cfg = I2S_STD_PHILIP_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT,
                                                        I2S_SLOT_MODE_STEREO),
         .gpio_cfg = {
@@ -62,6 +118,8 @@ esp_codec_dev_handle_t vocat_v1_0_microphone_init(void)
     if (bsp_i2c_init() != ESP_OK || bsp_audio_init(&i2s_config) != ESP_OK) return NULL;
     const audio_codec_data_if_t *data_if = bsp_audio_get_codec_itf();
     if (data_if == NULL) return NULL;
+    s_bsp_mic_data = data_if;
+    s_mic_i2s_enabled = true; /* bsp_audio_init enabled RX. */
 
     audio_codec_i2c_cfg_t i2c_config = {
         .port = BSP_I2C_NUM,
@@ -85,7 +143,7 @@ esp_codec_dev_handle_t vocat_v1_0_microphone_init(void)
     esp_codec_dev_cfg_t device_config = {
         .dev_type = ESP_CODEC_DEV_TYPE_IN,
         .codec_if = codec_if,
-        .data_if = data_if,
+        .data_if = &s_mic_data,
     };
     return esp_codec_dev_new(&device_config);
 }

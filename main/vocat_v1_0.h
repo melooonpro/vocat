@@ -4,6 +4,8 @@
 #include "esp_codec_dev.h"
 #include "esp_err.h"
 
+#define VOCAT_V10_MIC_SAMPLE_RATE 48000
+
 /** Apply the VoCat v1.0 LCD power/reset sequence (LCD reset is GPIO3). */
 esp_err_t vocat_v1_0_prepare_display(void);
 

@@ -18,9 +18,10 @@
 #include "usb_device_uac.h"
 #include "vocat_v1_0.h"
 
-#define SAMPLE_RATE 48000
+#define SAMPLE_RATE VOCAT_V10_MIC_SAMPLE_RATE
 #define UAC_INTERVAL_MS 10
 #define UAC_MONO_SAMPLES ((SAMPLE_RATE / 1000) * UAC_INTERVAL_MS)
+#define USB_STATUS_LOG_MS 10000
 
 static const char *TAG = "vocat_mic";
 static esp_codec_dev_handle_t s_microphone;
@@ -35,6 +36,8 @@ static atomic_uchar s_level_right;
 static atomic_uchar s_waveform[VOICE_USB_WAVE_BARS];
 static atomic_uint_fast32_t s_packet_count;
 static atomic_uint_fast32_t s_read_error_count;
+static atomic_uint_fast32_t s_mouse_report_count;
+static atomic_uint_fast32_t s_mouse_report_error_count;
 static atomic_uchar s_mouse_buttons;
 static atomic_int s_mouse_dx;
 static atomic_int s_mouse_dy;
@@ -129,9 +132,14 @@ static esp_err_t microphone_input(uint8_t *buf, size_t len, size_t *bytes_read, 
 
 static esp_err_t usb_start(void)
 {
+    ESP_LOGI(TAG, "Opening microphone: %d Hz, stereo I2S to mono UAC",
+             SAMPLE_RATE);
     if (s_microphone == NULL) {
         s_microphone = vocat_v1_0_microphone_init();
-        if (s_microphone == NULL) return ESP_FAIL;
+        if (s_microphone == NULL) {
+            ESP_LOGE(TAG, "Microphone codec initialization failed");
+            return ESP_FAIL;
+        }
     }
 
     esp_codec_dev_sample_info_t format = {
@@ -139,7 +147,10 @@ static esp_err_t usb_start(void)
         .channel = 2,
         .bits_per_sample = 16,
     };
-    if (esp_codec_dev_open(s_microphone, &format) != ESP_CODEC_DEV_OK) return ESP_FAIL;
+    if (esp_codec_dev_open(s_microphone, &format) != ESP_CODEC_DEV_OK) {
+        ESP_LOGE(TAG, "Microphone codec open failed");
+        return ESP_FAIL;
+    }
     s_codec_open = true;
     esp_codec_dev_set_in_gain(s_microphone, 30.0f);
 
@@ -156,17 +167,20 @@ static esp_err_t usb_start(void)
         };
         esp_err_t err = uac_device_init(&config);
         if (err != ESP_OK) {
+            ESP_LOGE(TAG, "USB UAC initialization failed: %s", esp_err_to_name(err));
             esp_codec_dev_close(s_microphone);
             s_codec_open = false;
             return err;
         }
         s_usb_stack_initialized = true;
+        ESP_LOGI(TAG, "USB UAC/HID stack initialized");
     } else {
         /* Give the shared internal PHY back to the already-running USB-OTG
          * stack and force a clean host re-enumeration. */
         usb_wrap_ll_phy_enable_external(&USB_WRAP, false);
         usb_wrap_ll_phy_enable_pad(&USB_WRAP, true);
         tud_connect();
+        ESP_LOGI(TAG, "USB UAC/HID reconnect requested");
     }
     atomic_store(&s_usb_active, true);
     ESP_LOGI(TAG, "Voice page USB enabled: UAC microphone + Ctrl/Win HID");
@@ -244,7 +258,9 @@ static void process_hid(void)
     if (tud_hid_mouse_report(VOCAT_HID_REPORT_ID_MOUSE, buttons,
                              (int8_t)dx, (int8_t)dy, (int8_t)wheel, 0)) {
         s_sent_mouse_buttons = buttons;
+        atomic_fetch_add(&s_mouse_report_count, 1);
     } else {
+        atomic_fetch_add(&s_mouse_report_error_count, 1);
         atomic_fetch_add(&s_mouse_dx, dx);
         atomic_fetch_add(&s_mouse_dy, dy);
         atomic_fetch_add(&s_mouse_wheel, wheel);
@@ -287,13 +303,19 @@ static void usb_stop(void)
 static void usb_manager_task(void *ctx)
 {
     (void)ctx;
+    bool was_mounted = false;
+    TickType_t last_status_log = xTaskGetTickCount();
+    uint32_t last_packet_count = 0;
+    uint32_t last_read_error_count = 0;
+    uint32_t last_mouse_report_count = 0;
+    uint32_t last_mouse_report_error_count = 0;
     while (true) {
         bool requested = atomic_load(&s_page_requested);
         bool active = atomic_load(&s_usb_active);
         if (requested && !active) {
             if (usb_start() != ESP_OK) {
                 ESP_LOGE(TAG, "Unable to enable voice USB");
-                vTaskDelay(pdMS_TO_TICKS(500));
+                vTaskDelay(pdMS_TO_TICKS(2000));
                 continue;
             }
         } else if (!requested && active) {
@@ -301,6 +323,33 @@ static void usb_manager_task(void *ctx)
         }
 
         if (atomic_load(&s_usb_active)) process_hid();
+        bool mounted = atomic_load(&s_mounted);
+        if (mounted != was_mounted) {
+            ESP_LOGI(TAG, "USB host %s UAC/HID", mounted ? "mounted" : "unmounted");
+            was_mounted = mounted;
+        }
+
+        TickType_t now = xTaskGetTickCount();
+        if (atomic_load(&s_usb_active) &&
+            now - last_status_log >= pdMS_TO_TICKS(USB_STATUS_LOG_MS)) {
+            uint32_t packets = (uint32_t)atomic_load(&s_packet_count);
+            uint32_t read_errors = (uint32_t)atomic_load(&s_read_error_count);
+            uint32_t mouse_reports = (uint32_t)atomic_load(&s_mouse_report_count);
+            uint32_t mouse_errors = (uint32_t)atomic_load(&s_mouse_report_error_count);
+            ESP_LOGI(TAG, "USB status: host=%s, mic packets=%lu, mic read errors=%lu, L/R level=%u/%u, mouse reports=%lu, mouse send failures=%lu",
+                     mounted ? "mounted" : "waiting",
+                     (unsigned long)(packets - last_packet_count),
+                     (unsigned long)(read_errors - last_read_error_count),
+                     (unsigned)atomic_load(&s_level_left),
+                     (unsigned)atomic_load(&s_level_right),
+                     (unsigned long)(mouse_reports - last_mouse_report_count),
+                     (unsigned long)(mouse_errors - last_mouse_report_error_count));
+            last_packet_count = packets;
+            last_read_error_count = read_errors;
+            last_mouse_report_count = mouse_reports;
+            last_mouse_report_error_count = mouse_errors;
+            last_status_log = now;
+        }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
