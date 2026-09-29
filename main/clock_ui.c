@@ -10,14 +10,17 @@
 #define DIGIT_W 50
 #define DIGIT_H 80
 #define DIGIT_BYTES (DIGIT_W * DIGIT_H / 2)
-#define DIGIT_GAP 2
+#define DIGIT_CELL_W (CARD_W / 2)
+#define FLAP_MIN_SCALE 24
 
 typedef struct {
     lv_obj_t *root;
     lv_obj_t *base_top;
     lv_obj_t *base_bottom;
+    lv_obj_t *bottom_mask;
     lv_obj_t *flap_top;
     lv_obj_t *flap_bottom;
+    lv_obj_t *bottom_edge;
     lv_obj_t *images[4][2];
     int value;
     int next_value;
@@ -93,18 +96,42 @@ static void set_half_value(flip_card_t *card, int layer, int value, bool bottom)
         s_right[digits[0]] - s_left[digits[0]] + 1,
         s_right[digits[1]] - s_left[digits[1]] + 1,
     };
-    int x = (CARD_W - widths[0] - widths[1] - DIGIT_GAP) / 2;
     for (int i = 0; i < 2; ++i) {
         lv_obj_t *image = card->images[layer][i];
+        int cell_x = i * DIGIT_CELL_W;
+        int glyph_x = cell_x + (DIGIT_CELL_W - widths[i]) / 2;
         lv_image_set_src(image, &s_digit_images[digits[i]]);
-        lv_obj_set_pos(image, x - s_left[digits[i]], bottom ? -40 : 20);
-        x += widths[i] + DIGIT_GAP;
+        lv_obj_set_pos(image, glyph_x - s_left[digits[i]], bottom ? -40 : 20);
     }
 }
 
 static void set_scale_y(void *object, int32_t value)
 {
     lv_obj_set_style_transform_scale_y((lv_obj_t *)object, value, 0);
+}
+
+static void set_bottom_fold(void *object, int32_t value)
+{
+    lv_obj_t *flap = object;
+    flip_card_t *card = lv_obj_get_user_data(lv_obj_get_parent(flap));
+    int32_t covered_height = (HALF_H * value + 255) / 256;
+    lv_obj_set_style_transform_scale_y(flap, value, 0);
+    lv_obj_set_height(card->bottom_mask, covered_height);
+    lv_obj_set_y(card->bottom_edge, HALF_H + covered_height - 2);
+}
+
+static void finish_top_fold(lv_anim_t *animation)
+{
+    lv_obj_add_flag((lv_obj_t *)animation->var, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void start_bottom_fold(lv_anim_t *animation)
+{
+    lv_obj_t *flap = (lv_obj_t *)animation->var;
+    flip_card_t *card = lv_obj_get_user_data(lv_obj_get_parent(flap));
+    lv_obj_remove_flag(card->bottom_mask, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(card->flap_bottom, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(card->bottom_edge, LV_OBJ_FLAG_HIDDEN);
 }
 
 static void finish_flip(lv_anim_t *animation)
@@ -116,22 +143,28 @@ static void finish_flip(lv_anim_t *animation)
     set_half_value(card, 1, card->value, true);
     lv_obj_add_flag(card->flap_top, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(card->flap_bottom, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(card->bottom_mask, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(card->bottom_edge, LV_OBJ_FLAG_HIDDEN);
 }
 
 static void flip_to(flip_card_t *card, int value)
 {
     if (card->value == value) return;
     lv_anim_delete(card->flap_top, set_scale_y);
-    lv_anim_delete(card->flap_bottom, set_scale_y);
+    lv_anim_delete(card->flap_bottom, set_bottom_fold);
     card->next_value = value;
     set_half_value(card, 0, value, false);
     set_half_value(card, 1, card->value, true);
     set_half_value(card, 2, card->value, false);
     set_half_value(card, 3, value, true);
     lv_obj_remove_flag(card->flap_top, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_remove_flag(card->flap_bottom, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(card->bottom_mask, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(card->flap_bottom, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(card->bottom_edge, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_style_transform_scale_y(card->flap_top, 256, 0);
-    lv_obj_set_style_transform_scale_y(card->flap_bottom, 1, 0);
+    lv_obj_set_style_transform_scale_y(card->flap_bottom, FLAP_MIN_SCALE, 0);
+    lv_obj_set_height(card->bottom_mask, 1);
+    lv_obj_set_y(card->bottom_edge, HALF_H);
 
     /* Ease-in gives the falling face increasing speed. The second face starts
        before the first reaches the hinge, avoiding the old mid-flip pause. */
@@ -139,19 +172,21 @@ static void flip_to(flip_card_t *card, int value)
     lv_anim_init(&top);
     lv_anim_set_var(&top, card->flap_top);
     lv_anim_set_exec_cb(&top, set_scale_y);
-    lv_anim_set_values(&top, 256, 1);
+    lv_anim_set_values(&top, 256, FLAP_MIN_SCALE);
     lv_anim_set_duration(&top, 190);
     lv_anim_set_path_cb(&top, lv_anim_path_ease_in);
+    lv_anim_set_completed_cb(&top, finish_top_fold);
     lv_anim_start(&top);
 
     lv_anim_t bottom;
     lv_anim_init(&bottom);
     lv_anim_set_var(&bottom, card->flap_bottom);
-    lv_anim_set_exec_cb(&bottom, set_scale_y);
-    lv_anim_set_values(&bottom, 1, 256);
+    lv_anim_set_exec_cb(&bottom, set_bottom_fold);
+    lv_anim_set_values(&bottom, FLAP_MIN_SCALE, 256);
     lv_anim_set_delay(&bottom, 145);
     lv_anim_set_duration(&bottom, 235);
-    lv_anim_set_path_cb(&bottom, lv_anim_path_ease_in);
+    lv_anim_set_path_cb(&bottom, lv_anim_path_ease_out);
+    lv_anim_set_start_cb(&bottom, start_bottom_fold);
     lv_anim_set_completed_cb(&bottom, finish_flip);
     lv_anim_start(&bottom);
 }
@@ -170,8 +205,30 @@ static void init_card(flip_card_t *card, lv_obj_t *parent, int x)
     lv_obj_set_user_data(card->root, card);
     card->base_top = make_half(card, 0, 0, lv_color_hex(0x1d1d20));
     card->base_bottom = make_half(card, 1, HALF_H, lv_color_hex(0x171719));
+    card->bottom_mask = lv_obj_create(card->root);
+    lv_obj_set_size(card->bottom_mask, CARD_W, 1);
+    lv_obj_set_pos(card->bottom_mask, 0, HALF_H);
+    lv_obj_set_style_bg_color(card->bottom_mask, lv_color_hex(0x171719), 0);
+    lv_obj_set_style_bg_opa(card->bottom_mask, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(card->bottom_mask, 0, 0);
+    lv_obj_set_style_radius(card->bottom_mask, 0, 0);
+    lv_obj_set_style_pad_all(card->bottom_mask, 0, 0);
+    lv_obj_remove_flag(card->bottom_mask,
+                       LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    lv_obj_add_flag(card->bottom_mask, LV_OBJ_FLAG_HIDDEN);
     card->flap_top = make_half(card, 2, 0, lv_color_hex(0x202023));
     card->flap_bottom = make_half(card, 3, HALF_H, lv_color_hex(0x18181a));
+    card->bottom_edge = lv_obj_create(card->root);
+    lv_obj_set_size(card->bottom_edge, CARD_W, 2);
+    lv_obj_set_pos(card->bottom_edge, 0, HALF_H);
+    lv_obj_set_style_bg_color(card->bottom_edge, lv_color_hex(0x080809), 0);
+    lv_obj_set_style_bg_opa(card->bottom_edge, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(card->bottom_edge, 0, 0);
+    lv_obj_set_style_radius(card->bottom_edge, 0, 0);
+    lv_obj_set_style_pad_all(card->bottom_edge, 0, 0);
+    lv_obj_remove_flag(card->bottom_edge,
+                       LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    lv_obj_add_flag(card->bottom_edge, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_style_transform_pivot_y(card->flap_top, HALF_H, 0);
     lv_obj_set_style_transform_pivot_y(card->flap_bottom, 0, 0);
     lv_obj_add_flag(card->flap_top, LV_OBJ_FLAG_HIDDEN);

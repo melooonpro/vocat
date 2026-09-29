@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import codecs
+import re
 import sys
 import time
 
@@ -19,6 +20,51 @@ try:
     import msvcrt
 except ImportError:  # pragma: no cover - this helper is currently Windows-only
     msvcrt = None
+
+
+ANSI_RESET = "\033[0m"
+ANSI_CYAN = "\033[36m"
+LOG_COLORS = {
+    "E": "\033[31m",  # red
+    "W": "\033[33m",  # yellow
+    "I": "\033[32m",  # green
+    "D": "\033[34m",  # blue
+    "V": "\033[90m",  # gray
+}
+LOG_LEVEL_PATTERN = re.compile(r"^(?:\033\[[0-9;]*m)*([EWIDV])\s+\(\d+\)")
+
+
+class ColorOutput:
+    def __init__(self, enabled: bool) -> None:
+        self.enabled = enabled
+        self.pending = ""
+
+    def _styled(self, line: str) -> str:
+        if not self.enabled:
+            return line
+        match = LOG_LEVEL_PATTERN.match(line)
+        if match is None:
+            return line
+        return f"{LOG_COLORS[match.group(1)]}{line}{ANSI_RESET}"
+
+    def feed(self, text: str) -> None:
+        self.pending += text
+        while "\n" in self.pending:
+            line, self.pending = self.pending.split("\n", 1)
+            sys.stdout.write(self._styled(line) + "\n")
+        sys.stdout.flush()
+
+    def flush_partial(self) -> None:
+        if self.pending:
+            sys.stdout.write(self._styled(self.pending))
+            sys.stdout.flush()
+            self.pending = ""
+
+    def notice(self, message: str) -> None:
+        if self.enabled:
+            print(f"{ANSI_CYAN}{message}{ANSI_RESET}")
+        else:
+            print(message)
 
 
 def open_port(port: str, baud: int) -> serial.Serial:
@@ -54,12 +100,15 @@ def read_keyboard(connection: serial.Serial | None) -> bool:
     return True
 
 
-def monitor(port: str, baud: int) -> int:
+def monitor(port: str, baud: int, color: bool = True) -> int:
     connection: serial.Serial | None = None
     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    output = ColorOutput(color)
     waiting_message_shown = False
 
-    print(f"[VoCat monitor] Watching {port} at {baud} baud. Press Ctrl+] to exit.")
+    output.notice(
+        f"[VoCat monitor] Watching {port} at {baud} baud. Press Ctrl+] to exit."
+    )
     try:
         while True:
             if connection is None:
@@ -67,11 +116,13 @@ def monitor(port: str, baud: int) -> int:
                     connection = open_port(port, baud)
                     decoder.reset()
                     if waiting_message_shown:
-                        print(f"\n[VoCat monitor] {port} restored; log resumed.")
+                        output.notice(
+                            f"\n[VoCat monitor] {port} restored; log resumed."
+                        )
                     waiting_message_shown = False
                 except (OSError, serial.SerialException):
                     if not waiting_message_shown:
-                        print(
+                        output.notice(
                             f"[VoCat monitor] {port} is in USB Mic/Mouse mode; "
                             "waiting for the log interface..."
                         )
@@ -84,8 +135,7 @@ def monitor(port: str, baud: int) -> int:
             try:
                 data = connection.read(connection.in_waiting or 1)
                 if data:
-                    sys.stdout.write(decoder.decode(data))
-                    sys.stdout.flush()
+                    output.feed(decoder.decode(data))
                 if not read_keyboard(connection):
                     return 0
             except (OSError, serial.SerialException):
@@ -94,14 +144,17 @@ def monitor(port: str, baud: int) -> int:
                 except (OSError, serial.SerialException):
                     pass
                 connection = None
+                output.flush_partial()
                 if not waiting_message_shown:
-                    print(
+                    output.notice(
                         f"\n[VoCat monitor] USB log paused; waiting for {port} to return..."
                     )
                     waiting_message_shown = True
     except KeyboardInterrupt:
         return 0
     finally:
+        output.feed(decoder.decode(b"", final=True))
+        output.flush_partial()
         if connection is not None:
             try:
                 connection.close()
@@ -113,8 +166,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Reconnectable VoCat serial monitor")
     parser.add_argument("port")
     parser.add_argument("--baud", type=int, default=115200)
+    parser.add_argument("--no-color", action="store_true", help="disable ANSI colors")
     args = parser.parse_args()
-    return monitor(args.port, args.baud)
+    use_color = sys.stdout.isatty() and not args.no_color
+    return monitor(args.port, args.baud, use_color)
 
 
 if __name__ == "__main__":
