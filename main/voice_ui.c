@@ -166,7 +166,6 @@ lv_obj_t *voice_ui_create(lv_obj_t *parent)
 {
     lv_obj_t *root = lv_obj_create(parent);
     lv_obj_set_size(root, 360, 360);
-    lv_obj_set_pos(root, 360, 0);
     lv_obj_set_style_bg_color(root, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(root, 0, 0);

@@ -39,6 +39,8 @@ CONFIG_UAC_MIC_INTERVAL_MS=10
 
 # Keep enough internal heap available for DMA display buffers.
 CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+CONFIG_BSP_LCD_DRAW_BUF_HEIGHT=36
+CONFIG_BSP_LCD_DRAW_BUF_DOUBLE=y
 
 # The LVGL + Wi-Fi + USB composite image is larger than the 1 MB factory default.
 CONFIG_PARTITION_TABLE_CUSTOM=y

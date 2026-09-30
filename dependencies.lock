@@ -85,6 +85,28 @@ dependencies:
       registry_url: https://components.espressif.com
       type: service
     version: 1.1.2
+  espressif/esp_lv_eaf_player:
+    component_hash: 6fa8ddc9724f1718a1d5718add878ff6305928e0379e702b395e02d8c208ac5d
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: 0.*
+    - name: espressif/esp_new_jpeg
+      registry_url: https://components.espressif.com
+      require: private
+      version: 1.*
+    - name: idf
+      require: private
+      version: '>=5.5'
+    - name: lvgl/lvgl
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=8,<10'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.3.0
   espressif/esp_lvgl_port:
     component_hash: d3c020b45c3dfc0d1706a83b63a1c34a6eb444a6e935f9afff79f92b7b94dcef
     dependencies:
@@ -99,6 +121,25 @@ dependencies:
       registry_url: https://components.espressif.com
       type: service
     version: 2.9.0
+  espressif/esp_new_jpeg:
+    component_hash: e1e7e6991193c41ed6c9fc386702aa7821433319e7aa9c3147cd3236310cd69c
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    targets:
+    - esp32
+    - esp32s2
+    - esp32s3
+    - esp32s31
+    - esp32p4
+    - esp32c2
+    - esp32c3
+    - esp32c5
+    - esp32c6
+    - esp32c61
+    - esp32h4
+    version: 1.0.2
   espressif/esp_vocat:
     component_hash: c9d5177f0608ba4a606fe37fdd528b7fcb8f97b08d4a0e2230d9e3e3fb0eb597
     dependencies:
@@ -272,9 +313,10 @@ dependencies:
     version: 9.6.0~1
 direct_dependencies:
 - espressif/bmi270
+- espressif/esp_lv_eaf_player
 - espressif/esp_vocat
 - espressif/usb_device_uac
 - idf
-manifest_hash: 9b5d519da831a93e6cb64ee84756fcb24c628ec277ecc122d99912fc3785ae98
+manifest_hash: 5f6db89310a240feeced223b93aa419d9ff9c89632ad5fa7247cc1840b36e437
 target: esp32s3
 version: 3.0.0

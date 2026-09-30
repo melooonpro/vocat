@@ -108,7 +108,7 @@ static bool system_time_is_valid(const struct tm *timeinfo)
 void app_main(void)
 {
     ESP_ERROR_CHECK(vocat_espnow_log_init());
-    ESP_LOGI(TAG, "Starting VoCat Clock, Mic and Mouse");
+    ESP_LOGI(TAG, "Starting VoCat EAF, Clock, Mic and Mouse");
     ESP_ERROR_CHECK(app_ui_init());
     app_ui_update_clock(NULL, false, false);
     ESP_ERROR_CHECK(voice_usb_init());

@@ -4,6 +4,7 @@
 #include "air_mouse.h"
 #include "bsp/esp_vocat.h"
 #include "clock_ui.h"
+#include "eaf_ui.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "mouse_ui.h"
@@ -11,20 +12,18 @@
 #include "voice_usb.h"
 #include "vocat_v1_0.h"
 
-static lv_obj_t *s_clock;
-static lv_obj_t *s_voice;
-static lv_obj_t *s_mouse;
-
 typedef enum {
-    APP_PAGE_CLOCK = 0,
+    APP_PAGE_EAF = 0,
+    APP_PAGE_CLOCK,
     APP_PAGE_VOICE,
     APP_PAGE_MOUSE,
     APP_PAGE_COUNT,
 } app_page_t;
 
-static volatile app_page_t s_page = APP_PAGE_CLOCK;
+static lv_obj_t *s_pages[APP_PAGE_COUNT];
+static volatile app_page_t s_page = APP_PAGE_EAF;
 static const char *TAG = "vocat_ui";
-static const char *const s_page_names[] = {"Clock", "Mic", "Mouse"};
+static const char *const s_page_names[] = {"EAF", "Clock", "Mic", "Mouse"};
 
 static void set_x(void *object, int32_t value) { lv_obj_set_x((lv_obj_t *)object, value); }
 
@@ -52,12 +51,13 @@ static void show_page(app_page_t page)
         air_mouse_set_active(false);
     }
 
-    voice_usb_set_page_active(page != APP_PAGE_CLOCK);
+    /* Page 0/1 keep the native USB Serial/JTAG download port available. */
+    voice_usb_set_page_active(page == APP_PAGE_VOICE || page == APP_PAGE_MOUSE);
+    eaf_ui_set_active(page == APP_PAGE_EAF);
     if (page == APP_PAGE_MOUSE) air_mouse_set_active(true);
 
-    lv_obj_t *pages[] = {s_clock, s_voice, s_mouse};
     for (int i = 0; i < APP_PAGE_COUNT; ++i) {
-        slide(pages[i], lv_obj_get_x(pages[i]), (i - (int)page) * 360);
+        slide(s_pages[i], lv_obj_get_x(s_pages[i]), (i - (int)page) * 360);
     }
     s_page = page;
 }
@@ -67,7 +67,7 @@ static void gesture_event(lv_event_t *event)
     lv_event_code_t code = lv_event_get_code(event);
     if (code == LV_EVENT_GESTURE_LEFT && s_page + 1 < APP_PAGE_COUNT) {
         show_page((app_page_t)(s_page + 1));
-    } else if (code == LV_EVENT_GESTURE_RIGHT && s_page > APP_PAGE_CLOCK) {
+    } else if (code == LV_EVENT_GESTURE_RIGHT && s_page > APP_PAGE_EAF) {
         show_page((app_page_t)(s_page - 1));
     }
 }
@@ -75,15 +75,37 @@ static void gesture_event(lv_event_t *event)
 esp_err_t app_ui_init(void)
 {
     ESP_RETURN_ON_ERROR(vocat_v1_0_prepare_display(), "app_ui", "prepare v1.0 display");
-    if (bsp_display_start() == NULL) return ESP_FAIL;
+    /* Keep DMA draw buffers small: the BSP default uses two 360x100
+     * RGB565 buffers (144 KB) in internal RAM, even with PSRAM enabled.
+     * 36 rows use 51,840 bytes total and retain asynchronous double buffering.
+     * Respect a smaller configured SPI transfer height, if selected. */
+    const uint32_t draw_rows = CONFIG_BSP_LCD_DRAW_BUF_HEIGHT < 36
+                                   ? CONFIG_BSP_LCD_DRAW_BUF_HEIGHT : 36;
+    const bsp_display_cfg_t display_config = {
+        .lvgl_port_cfg = ESP_LVGL_PORT_INIT_CONFIG(),
+        .buffer_size = BSP_LCD_H_RES * draw_rows,
+        .double_buffer = true,
+        .flags = {
+            .buff_dma = true,
+            .buff_spiram = false,
+            .sw_rotate = false,
+        },
+    };
+    ESP_LOGI(TAG, "Display DMA buffers: 2 x %lu rows", (unsigned long)draw_rows);
+    if (bsp_display_start_with_config(&display_config) == NULL) return ESP_FAIL;
     if (!bsp_display_lock(0)) return ESP_ERR_TIMEOUT;
     lv_obj_t *screen = lv_screen_active();
     lv_obj_set_style_bg_color(screen, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     lv_obj_set_scrollable(screen, false);
-    s_clock = clock_ui_create(screen);
-    s_voice = voice_ui_create(screen);
-    s_mouse = mouse_ui_create(screen);
+    s_pages[APP_PAGE_EAF] = eaf_ui_create(screen);
+    s_pages[APP_PAGE_CLOCK] = clock_ui_create(screen);
+    s_pages[APP_PAGE_VOICE] = voice_ui_create(screen);
+    s_pages[APP_PAGE_MOUSE] = mouse_ui_create(screen);
+    for (int i = 0; i < APP_PAGE_COUNT; ++i) {
+        lv_obj_set_pos(s_pages[i], i * 360, 0);
+    }
+    voice_usb_set_page_active(false);
     lv_obj_add_event_cb(screen, gesture_event, LV_EVENT_GESTURE_LEFT, NULL);
     lv_obj_add_event_cb(screen, gesture_event, LV_EVENT_GESTURE_RIGHT, NULL);
     bsp_display_unlock();

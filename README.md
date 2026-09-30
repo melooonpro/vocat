@@ -1,10 +1,17 @@
-# VoCat Clock / Mic / Mouse
+# VoCat EAF / Clock / Mic / Mouse
 
-基于 ESP-IDF 6.1 和 LVGL 的 VoCat v1.0 固件。工程包含翻页时钟、USB 麦克风和
-IMU 空鼠三个页面，支持 `ESP32-S3-WROOM-2-N32R16V` 与
+基于 ESP-IDF 6.1 和 LVGL 的 VoCat v1.0 固件。工程包含 EAF 动画、翻页时钟、USB 麦克风和
+IMU 空鼠四个页面，支持 `ESP32-S3-WROOM-2-N32R16V` 与
 `ESP32-S3-WROOM-1-N16R8` 两种硬件配置。
 
 ## 功能概览
+
+### VoCat EAF（page0）
+
+- 开机默认显示 `assets/eaf/xiaohei_blink_360.eaf`，以 50 ms 帧间隔循环播放。
+- 动画资源直接嵌入固件，无需单独下载文件系统。
+- 离开 page0 时暂停动画，返回时继续播放。
+- page0 和时钟 page1 均保留 USB Serial/JTAG 下载与监视端口。
 
 ### VoCat Clock
 
@@ -37,8 +44,10 @@ IMU 空鼠三个页面，支持 `ESP32-S3-WROOM-2-N32R16V` 与
 页面通过屏幕上方区域左右滑动切换：
 
 ```text
-VoCat Clock  <->  VoCat Mic  <->  VoCat Mouse
+page0 EAF  <->  page1 Clock  <->  page2 Mic  <->  page3 Mouse
 ```
+
+左滑进入下一页，右滑返回上一页；page0 右滑和 page3 左滑不切换页面。
 
 ## 支持的硬件配置
 
@@ -136,13 +145,13 @@ VoCat 的 USB 仍用于下载固件。日志现在通过 ESP-NOW 发往第二块
 
 ESP32-S3 内部 USB PHY 由 USB Serial/JTAG 和 USB-OTG 共用：
 
-- Clock 页面：UAC/HID 断开，USB PHY 可用于下载固件。
+- EAF（page0）和 Clock（page1）页面：UAC/HID 断开，USB PHY 可用于下载固件；两页之间切换不改变 USB 模式。
 - Mic/Mouse 页面：USB PHY 切换为 USB-OTG，Windows 枚举 `VoCat Mic` UAC 与
   键鼠 HID 复合设备，此时原 COM 端口暂时消失。
-- 返回 Clock 页面：释放所有 HID 按键，断开 UAC/HID，恢复原 COM 端口。
+- 从 Mic/Mouse 返回 Clock 或 EAF 页面：释放所有 HID 按键，断开 UAC/HID，恢复原 COM 端口。
 
 VoCat 的应用日志由 `esp_log_set_vprintf()` 捕获，并通过 ESP-NOW 发给接收板。VoCat
-同时保留 USB Serial/JTAG 本地日志和异常输出，Clock 页面可直接监视；Mic/Mouse 页面切换 USB PHY 后，本地 COM 口会暂时消失。
+同时保留 USB Serial/JTAG 本地日志和异常输出，EAF 和 Clock 页面可直接监视；Mic/Mouse 页面切换 USB PHY 后，本地 COM 口会暂时消失。
 S3 接收板通过 CH343 UART 串口把收到的日志显示到电脑。两块板必须连接同一个
 2.4 GHz Wi-Fi 网络，S3 接收端工程位于 `F:\esp-proj\esp-now-log-s3`；
 C3 原生 USB 接收端工程位于 `F:\esp-proj\esp-now-log-c3`。
@@ -162,7 +171,8 @@ fmu COM6 N32R16 COM7
 ```text
 main/
   hello_vocat.c          应用入口、Wi-Fi、SNTP 与 Clock 心跳日志
-  app_ui.c               Clock/Mic/Mouse 页面切换与 USB 生命周期
+  app_ui.c               EAF/Clock/Mic/Mouse 页面切换与 USB 生命周期
+  eaf_ui.c               EAF 首页动画加载、循环播放与暂停
   clock_ui.c             固定双数字槽的 LVGL 翻页时钟
   voice_ui.c             麦克风按钮、回车触控区、光晕与波形
   mouse_ui.c             鼠标图案、左右键、滚轮与回中触控区
