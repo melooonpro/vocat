@@ -85,22 +85,15 @@ try {
         exit $LASTEXITCODE
     }
 
-    Write-Host 'VoCat logs are now forwarded to the ESP-NOW receiver.' -ForegroundColor Cyan
+    Write-Host 'VoCat logs are available on the secondary UART (TX GPIO5 / RX GPIO6).' -ForegroundColor Cyan
     if ($LogPort) {
-        Write-Host "Opening the receiver monitor on $LogPort..." -ForegroundColor Cyan
-        $receiverDirectory = Join-Path (Split-Path -Parent $projectDirectory) 'esp-now-log-s3'
-        Push-Location $receiverDirectory
-        try {
-            & $idfPython (Join-Path $env:IDF_PATH 'tools\idf.py') -B build-s3 -p $LogPort monitor
-            exit $LASTEXITCODE
-        }
-        finally {
-            Pop-Location
-        }
+        Write-Host "Opening the VoCat UART monitor on $LogPort..." -ForegroundColor Cyan
+        & $idfPython (Join-Path $toolsDirectory 'vocat-monitor.py') $LogPort --baud 115200
+        exit $LASTEXITCODE
     }
 
-    Write-Host 'Open the receiver board monitor separately to view logs.' -ForegroundColor Yellow
-    Write-Host 'Example: cd F:\esp-proj\esp-now-log-s3; F:\esp-proj\vocat\tools\idf.cmd -B build-s3 -p COM7 monitor'
+    Write-Host 'Open the secondary UART monitor separately to view logs.' -ForegroundColor Yellow
+    Write-Host 'Example: python tools\vocat-monitor.py COM8 --baud 115200'
     exit 0
 }
 finally {

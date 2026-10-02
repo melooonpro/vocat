@@ -160,11 +160,11 @@ C3 原生 USB 接收端工程位于 `F:\esp-proj\esp-now-log-c3`。
 接收端监视器：
 
 ```powershell
-fmu COM6 N32R16 COM7
+fmu COM6 N32R16 COM8
 ```
 
-这里 `COM6` 是 VoCat 下载端口，`COM7` 是接收板监视器端口。只传 VoCat 端口和型号时，
-`fmu` 烧录后会退出，并提示如何单独打开接收板监视器。
+这里 `COM6` 是 VoCat 下载端口，`COM8` 是连接 IO5/IO6 的 USB-UART 监视器端口。只传 VoCat 端口和型号时，
+`fmu` 烧录后会退出，并提示如何单独打开 UART 监视器。
 
 ## 项目结构
 

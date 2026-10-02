@@ -12,6 +12,7 @@
 #include "esp_log.h"
 #include "esp_now.h"
 #include "esp_wifi.h"
+#include "driver/uart.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
@@ -63,6 +64,10 @@ static volatile uint32_t s_dropped_records;
 static uint32_t s_next_sequence = 1;
 static vprintf_like_t s_console_vprintf;
 
+#if CONFIG_VOCAT_DEBUG_UART_ENABLE
+static bool s_debug_uart_ready;
+#endif
+
 static int capture_log_vprintf(const char *format, va_list args)
 {
     /* Preserve the local console, especially for startup and panic diagnostics. */
@@ -73,6 +78,21 @@ static int capture_log_vprintf(const char *format, va_list args)
         console_length = s_console_vprintf(format, console_args);
         va_end(console_args);
     }
+
+#if CONFIG_VOCAT_DEBUG_UART_ENABLE
+    if (s_debug_uart_ready) {
+        va_list uart_args;
+        va_copy(uart_args, args);
+        char uart_text[LOG_TEXT_CAPACITY];
+        int uart_length = vsnprintf(uart_text, sizeof(uart_text), format, uart_args);
+        va_end(uart_args);
+        if (uart_length > 0) {
+            size_t length = (size_t)uart_length;
+            if (length >= sizeof(uart_text)) length = sizeof(uart_text) - 1;
+            uart_write_bytes(CONFIG_VOCAT_DEBUG_UART_PORT, uart_text, length);
+        }
+    }
+#endif
 
     if (s_log_queue == NULL) return console_length;
 
@@ -271,6 +291,28 @@ esp_err_t vocat_espnow_log_init(void)
     if (s_log_queue == NULL || s_tx_result_semaphore == NULL || s_ack_semaphore == NULL) {
         return ESP_ERR_NO_MEM;
     }
+
+#if CONFIG_VOCAT_DEBUG_UART_ENABLE
+    ESP_RETURN_ON_ERROR(uart_driver_install(CONFIG_VOCAT_DEBUG_UART_PORT, 256, 2048,
+                                            0, NULL, 0),
+                        TAG, "debug UART driver install failed");
+    ESP_RETURN_ON_ERROR(uart_param_config(CONFIG_VOCAT_DEBUG_UART_PORT,
+                                          &(uart_config_t){
+                                              .baud_rate = CONFIG_VOCAT_DEBUG_UART_BAUDRATE,
+                                              .data_bits = UART_DATA_8_BITS,
+                                              .parity = UART_PARITY_DISABLE,
+                                              .stop_bits = UART_STOP_BITS_1,
+                                              .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+                                              .source_clk = UART_SCLK_DEFAULT,
+                                          }),
+                        TAG, "debug UART configuration failed");
+    ESP_RETURN_ON_ERROR(uart_set_pin(CONFIG_VOCAT_DEBUG_UART_PORT,
+                                     CONFIG_VOCAT_DEBUG_UART_TX_GPIO,
+                                     CONFIG_VOCAT_DEBUG_UART_RX_GPIO,
+                                     UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE),
+                        TAG, "debug UART pin setup failed");
+    s_debug_uart_ready = true;
+#endif
 
     s_console_vprintf = esp_log_set_vprintf(capture_log_vprintf);
     BaseType_t task_result = xTaskCreate(tx_task, "espnow_log_tx", 4096, NULL, 5,

@@ -4,6 +4,7 @@ idf_component_register(
     INCLUDE_DIRS "." "usb"
     REQUIRES esp_vocat esp_codec_dev esp_lv_eaf_player usb_device_uac espressif__tinyusb espressif__bmi270
              esp_common esp_event esp_netif esp_wifi freertos log nvs_flash
+             esp_driver_uart
     EMBED_FILES "clock_digits.bin"
 )
 

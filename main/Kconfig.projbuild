@@ -26,4 +26,35 @@ menu "VoCat Desktop"
         bool "Use 24-hour time"
         default y
 
+    config VOCAT_DEBUG_UART_ENABLE
+        bool "Enable secondary debug UART"
+        default y
+        help
+            Copy application log output to a separate hardware UART. This
+            does not change the USB Serial/JTAG console used for flashing.
+
+    config VOCAT_DEBUG_UART_PORT
+        int "Secondary debug UART port"
+        range 0 2
+        default 1
+        depends on VOCAT_DEBUG_UART_ENABLE
+
+    config VOCAT_DEBUG_UART_TX_GPIO
+        int "Secondary debug UART TX GPIO"
+        range -1 48
+        default 5
+        depends on VOCAT_DEBUG_UART_ENABLE
+
+    config VOCAT_DEBUG_UART_RX_GPIO
+        int "Secondary debug UART RX GPIO"
+        range -1 48
+        default 6
+        depends on VOCAT_DEBUG_UART_ENABLE
+
+    config VOCAT_DEBUG_UART_BAUDRATE
+        int "Secondary debug UART baud rate"
+        range 1200 2000000
+        default 115200
+        depends on VOCAT_DEBUG_UART_ENABLE
+
 endmenu
