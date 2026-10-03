@@ -109,6 +109,11 @@ esp_err_t app_ui_init(void)
     lv_obj_add_event_cb(screen, gesture_event, LV_EVENT_GESTURE_LEFT, NULL);
     lv_obj_add_event_cb(screen, gesture_event, LV_EVENT_GESTURE_RIGHT, NULL);
     bsp_display_unlock();
+    esp_err_t touch_result = vocat_v1_0_top_touch_init();
+    if (touch_result != ESP_OK) {
+        ESP_LOGE(TAG, "Unable to initialize top touch pad: %s",
+                 esp_err_to_name(touch_result));
+    }
     return bsp_display_brightness_set(100);
 }
 

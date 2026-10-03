@@ -4,19 +4,26 @@ idf_component_register(
     INCLUDE_DIRS "." "usb"
     REQUIRES esp_vocat esp_codec_dev esp_lv_eaf_player usb_device_uac espressif__tinyusb espressif__bmi270
              esp_common esp_event esp_netif esp_wifi freertos log nvs_flash
-             esp_driver_uart
+             esp_driver_uart esp_driver_touch_sens
     EMBED_FILES "clock_digits.bin"
 )
 
 # Keep the original asset intact; the player cannot render converter metadata.
 set(eaf_source "${CMAKE_CURRENT_SOURCE_DIR}/../assets/eaf/xiaohei_blink_360.eaf")
+set(eaf_happy_source "${CMAKE_CURRENT_SOURCE_DIR}/../assets/eaf/xiaohei_happy_360.eaf")
 set(eaf_preparer "${CMAKE_CURRENT_SOURCE_DIR}/../tools/prepare_eaf.py")
 set(eaf_binary "${CMAKE_CURRENT_BINARY_DIR}/xiaohei_blink_360.eaf")
+set(eaf_happy_binary "${CMAKE_CURRENT_BINARY_DIR}/xiaohei_happy_360.eaf")
 add_custom_command(OUTPUT "${eaf_binary}"
     COMMAND "${PYTHON}" "${eaf_preparer}" "${eaf_source}" "${eaf_binary}"
     DEPENDS "${eaf_source}" "${eaf_preparer}"
     VERBATIM)
+add_custom_command(OUTPUT "${eaf_happy_binary}"
+    COMMAND "${PYTHON}" "${eaf_preparer}" "${eaf_happy_source}" "${eaf_happy_binary}"
+    DEPENDS "${eaf_happy_source}" "${eaf_preparer}"
+    VERBATIM)
 target_add_binary_data(${COMPONENT_LIB} "${eaf_binary}" BINARY)
+target_add_binary_data(${COMPONENT_LIB} "${eaf_happy_binary}" BINARY)
 
 # usb_device_uac can be embedded in a composite USB device.  In that mode the
 # application supplies TinyUSB's configuration and descriptors.
